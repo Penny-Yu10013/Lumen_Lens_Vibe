@@ -57,6 +57,8 @@
 | fps 哨兵/debug HUD | `[SEC:FPS]`（<45fps 連續 3 秒：先關玻璃、再降 pixelRatio 1.5） |
 | 光暈染 UI 的顏色 | `[SEC:GLOWCOLOR]`（Iris 傾斜時 JS 端 `spectralJS` 跟 shader 同步光譜色） |
 | P1/P2 擴充 | `[SEC:MODES]`（P1 星石=註冊新模式；P2=獨立 `octahedron.html`） |
+| 蛋面（M9a） | `[SEC:GLSL]` 的 `#ifdef DOME` 區塊（`domeSample`/橢球法線常數 a=b=1.06,c=0.60 與 `domeGeo` 綁定）＋`[SEC:SCENE]` `domeGeo`/`domeMats`/`sliceGroup`＋`[SEC:UI]` `applyDome`/`domeSupported`/色散滑桿（buildSliders 尾段）；SLICES 加 `dome:true` 即支援新切片 |
+| 蛋面色散 | `uDispStr`（藝術誇張量，物理 Δn 在蛋面尺度 <1px 不可見）＋`uDisp` 開關（哨兵第一段降級；hash `disp=0`） |
 | 主迴圈/姿態/uniform 更新 | `[SEC:LOOP]` |
 | CSS：玻璃/LOGO/手機版 | `[SEC:CSS-GLASS]`/`[SEC:CSS-LOGO]`（LOGO SLOT 註解=可替換插槽）/`[SEC:CSS-MOBILE]` |
 
@@ -68,6 +70,8 @@
 - M8：README/LICENSE/.gitignore 已建；OG 文案是【人類決】佔位；**尚未建 git repo/未推 Pages**（用戶 GitHub Desktop 操作）
 - **錨點照第一輪調參已做**（2026-07-16，用戶已丟 21 張參考圖進 `參考圖\` 含【參照】筆記）：trapiche=細臂/小六角核/濃郁祖母綠/秘密花園霧域/扇區明暗差；liddi=六方輪廓/粉色 Mercedes 星線/橄欖外圈/黑殼/新色序 palette；iris=乳白冷色體/琥珀 crust/玉髓核/帶振幅由內向外。**第二輪等用戶看成品後截圖標註再收斂**
 - 星石×4、GIA×4 參考圖已在 `參考圖\`（P1/P2 開工直接用）
+- **M9a 蛋面完成第一輪**（2026-07-16）：達碧茲半球折射（函數式真折射：橢球 refract→ray-plane 求交→重算圖案）＋三波長色散滑桿＋Fresnel/果凍 rim＋哨兵降級鏈（色散→玻璃→pixelRatio）。決策與技術脈絡見 `3D折射方向_討論稿.md`。**未上線**（用戶看過成品再推）。M9b 瑪瑙厚牆/M9c 後處理/M9d 萬花筒未做（萬花筒緩議）
+- **蛋面類 shader 的截圖驗證**：headless Chrome 會逾時（SwiftShader 扛不住），改走「隱藏分頁 pixelRatio 0.5 同步 render → canvas.toDataURL → fetch POST 到本機一次性 HttpListener（scratchpad `recv.ps1`，port 8766）→ Read jpg」
 - 【懸置】Logo 正式視覺（CSS placeholder 在跑）；OG 文案（README/index.html 有插槽註解）
 
 ## 6. 用戶背景備忘

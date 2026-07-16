@@ -97,7 +97,7 @@ hr{border:none;border-top:1px solid var(--line)}
 #panelBtn{position:fixed;right:16px;bottom:20px;z-index:11;display:none;font-size:17px}
 #hint{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:8;
   font-size:11px;color:var(--dim);letter-spacing:.15em;opacity:.7;pointer-events:none;
-  transition:opacity 1.2s}
+  white-space:nowrap;transition:opacity 1.2s}
 #hint.gone{opacity:0}
 
 #debugHud{position:fixed;left:20px;top:84px;z-index:20;display:none;
@@ -155,6 +155,7 @@ body.shot #panelBtn,body.shot #hint{display:none!important}
   <div class="pTitle" id="paramTitle" data-i18n="params">標本參數</div>
   <div id="paramSliders" style="display:flex;flex-direction:column;gap:12px"></div>
   <hr>
+  <label class="chkRow" id="domeRow"><input type="checkbox" id="domeChk"><span data-i18n="domeview">蛋面檢視</span></label>
   <label class="chkRow"><input type="checkbox" id="glassChk" checked><span data-i18n="glassfx">玻璃效果</span></label>
   <button id="resetBtn" data-i18n="reset">視角回正</button>
 </div>
@@ -183,6 +184,7 @@ const HASH=(()=>{const o={};location.hash.replace(/^#/,'').split('&').forEach(kv
   if(!kv)return;const i=kv.indexOf('=');
   if(i<0)o[kv]=true;else o[kv.slice(0,i)]=decodeURIComponent(kv.slice(i+1));});return o;})();
 const DEBUG=!!HASH.debug, SHOT=!!HASH.shot;
+const IS_TOUCH=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
 if(DEBUG)document.body.classList.add('debug');
 if(SHOT)document.body.classList.add('shot');
 
@@ -201,7 +203,9 @@ const I18N_STATIC={
   glassfx:{zh:'玻璃效果',en:'Glass effect'},
   reset:{zh:'視角回正',en:'Reset view'},
   hint:{zh:'拖曳旋轉 · 上下拖曳傾斜 · 滾輪縮放',en:'Drag to spin · Vertical drag to tilt · Scroll to zoom'},
+  domeview:{zh:'蛋面檢視',en:'Cabochon dome'},
 };
+if(IS_TOUCH)I18N_STATIC.hint={zh:'拖曳旋轉 · 上下拖曳傾斜 · 雙指縮放',en:'Drag to spin · Vertical drag to tilt · Pinch to zoom'};
 function applyStaticLang(){
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     const k=el.getAttribute('data-i18n');if(I18N_STATIC[k])el.textContent=I18N_STATIC[k][UI_LANG];});
@@ -218,7 +222,7 @@ const SLICES=[
    system:'六方晶系 · 哥倫比亞', systemEn:'Hexagonal · Colombia',
    line:'結晶時六個生長扇區的邊界富集碳質包裹體，切片透光現六輻黑臂——不是星光，是生長的紀錄。',
    lineEn:'Carbon-rich inclusions gather along six sector boundaries during growth; backlit, the slice shows six dark arms — not asterism, but a record of growth.',
-   define:'SLICE_TRAPICHE', glow:[0.20,0.75,0.42],
+   define:'SLICE_TRAPICHE', glow:[0.20,0.75,0.42], dome:true,
    uniforms:{uArmWidth:.035,uArmDensity:2.6,uEnrich:0.8,uCoreDensity:2.2,uThickness:1.0},
    sliders:[
      {k:'uArmWidth', zh:'臂寬', en:'Arm width', min:.02,max:.16,step:.005},
@@ -255,20 +259,22 @@ const SLICES=[
    [SEC:GLSL] Shader（單一模板 + defines 編三份）
    ================================================================ */
 const VERT=`
-varying vec2 vUv; varying vec3 vWorldPos;
-void main(){ vUv=uv; vec4 wp=modelMatrix*vec4(position,1.0); vWorldPos=wp.xyz;
+varying vec2 vUv; varying vec3 vWorldPos; varying vec3 vPos;
+void main(){ vUv=uv; vPos=position; vec4 wp=modelMatrix*vec4(position,1.0); vWorldPos=wp.xyz;
   gl_Position=projectionMatrix*viewMatrix*wp; }`;
 
 const FRAG=`
 precision highp float;
 #define PI 3.14159265
 #define TAU 6.2831853
-varying vec2 vUv; varying vec3 vWorldPos;
+varying vec2 vUv; varying vec3 vWorldPos; varying vec3 vPos;
 uniform float uBacklight,uThickness,uTilt,uTime;
 uniform mat3 uInvRot;
 uniform float uArmWidth,uArmDensity,uEnrich,uCoreDensity;
 uniform float uBandFreq,uSharp,uTintShift,uRound,uRayLine;
 uniform float uBandDensity,uD0,uDGrad,uIrisGain;
+uniform float uIor,uDisp,uDispStr;
+uniform vec3 uGlowColor3;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
 float vnoise(vec2 q){vec2 i=floor(q),f=fract(q);f=f*f*(3.0-2.0*f);
@@ -318,14 +324,12 @@ vec3 bandCol(float i){
   return c;}
 #endif
 
-void main(){
-  vec2 p=(vUv-0.5)*2.2;
+/* 線性空間切片色（未 tonemap、未加表面 sheen）。inside=0 表示外形外。
+   蛋面 shader 與平面共用這支函數＝「函數式折射」的核心 */
+vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
   float sd=shapeSD(p);
-  if(sd>0.0)discard;
-  vec3 vW=normalize(cameraPosition-vWorldPos);
-  vec3 vL=uInvRot*vW;
-  float cosT=max(cos(uTilt),0.35);
-  float pathLen=uThickness/cosT;
+  if(sd>0.0){inside=0.0;return vec3(0.0);}
+  inside=1.0;
   float profile=0.78+0.22*exp(-dot(p,p)*0.5);
   float r=length(p);
   float th=atan(p.y,p.x);
@@ -418,16 +422,69 @@ void main(){
 
   vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
   col+=irisAdd;
-  /* 無背光也看得到的微弱表面 sheen */
-  float fres=pow(1.0-abs(vL.z),3.0);
-  col+=(0.014+0.09*fres)*vec3(0.55,0.65,0.80);
   col+=T*0.04;
   /* 磨邊亮線（假厚度）*/
   float rim=smoothstep(0.05,0.008,-sd);
   col+=rim*(0.04+0.28*uBacklight)*vec3(0.85,0.92,1.0)*0.55;
+  return col;
+}
+
+#ifdef DOME
+/* [蛋面] 單一波長取樣：橢球面 refract → 與切片平面(z=0)解析求交 → 重算圖案函數 */
+vec3 domeSample(vec3 P,vec3 I,vec3 nl,float ior){
+  vec3 rd=refract(I,nl,1.0/ior);
+  if(dot(rd,rd)<1e-4||rd.z>-0.03)return vec3(0.0); /* TIR/掠射：交給 Fresnel 邊 */
+  float t=-P.z/rd.z;
+  vec2 hit=P.xy+t*rd.xy;
+  float pl=uThickness*(0.72+0.5*min(t,1.6)); /* 穿越蛋面的光程越長越濃＝果凍感 */
+  float inside;
+  vec3 c=sliceLinear(hit,rd,pl,inside);
+  if(inside<0.5){float rr=dot(hit,hit);
+    c=vec3(0.92,0.96,1.0)*uBacklight*exp(-rr*0.55)*0.85;} /* 外形外＝透看光桌 */
+  return c;
+}
+#endif
+
+void main(){
+#ifdef DOME
+  vec3 camL=uInvRot*cameraPosition;
+  vec3 I=normalize(vPos-camL);
+  vec3 nl=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(0.60*0.60))); /* 橢球解析法線 */
+  float ndi=max(dot(-I,nl),0.0);
+  float F=0.045+0.955*pow(1.0-ndi,5.0);
+  vec3 trans;
+  if(uDisp>0.5){ /* 三波長色散（火彩）。uDispStr 是藝術誇張量：
+       物理值(Δn≈0.012)在蛋面尺度位移<1px 不可見，放大才有莫臥兒果凍的光譜邊 */
+    trans=vec3(domeSample(vPos,I,nl,uIor-0.85*uDispStr).r,
+               domeSample(vPos,I,nl,uIor).g,
+               domeSample(vPos,I,nl,uIor+uDispStr).b);
+  }else trans=domeSample(vPos,I,nl,uIor);
+  vec3 rdir=reflect(I,nl);
+  vec3 refl=mix(vec3(0.006),uGlowColor3*0.30*uBacklight,smoothstep(0.1,-0.7,rdir.z));
+  vec3 keyL=normalize(uInvRot*normalize(vec3(-0.35,0.45,0.82)));
+  vec3 H=normalize(keyL-I);
+  float spec=pow(max(dot(nl,H),0.0),240.0)*1.1+pow(max(dot(nl,H),0.0),14.0)*0.05;
+  float rimGlow=pow(1.0-ndi,2.6);
+  vec3 col=trans*(1.0-F)+refl*F+vec3(spec);
+  col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight); /* 果凍水潤邊 */
   col=col/(1.0+col);
   col=pow(col,vec3(0.4545));
   gl_FragColor=vec4(col,1.0);
+#else
+  vec2 p=(vUv-0.5)*2.2;
+  vec3 vW=normalize(cameraPosition-vWorldPos);
+  vec3 vL=uInvRot*vW;
+  float cosT=max(cos(uTilt),0.35);
+  float inside;
+  vec3 col=sliceLinear(p,vL,uThickness/cosT,inside);
+  if(inside<0.5)discard;
+  /* 無背光也看得到的微弱表面 sheen（平面版限定，蛋面有自己的 Fresnel）*/
+  float fres=pow(1.0-abs(vL.z),3.0);
+  col+=(0.014+0.09*fres)*vec3(0.55,0.65,0.80);
+  col=col/(1.0+col);
+  col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1.0);
+#endif
 }`;
 
 /* 光桌 shader：圓形柔光 disc + 大範圍微光 + 微塵 */
@@ -511,12 +568,37 @@ SLICES.forEach(s=>{
     uniforms:u,defines:defs,side:THREE.DoubleSide});
 });
 const slice=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.2),sliceMats[SLICES[0].id]);
-slice.renderOrder=2;scene.add(slice);
+slice.renderOrder=2;
+
+/* [M9a] 蛋面：壓扁半球（橢球 a=b=1.06, c=0.60，和 shader 解析法線常數綁定）
+   材質與平面版共用同一組 uniform 物件（Object.assign 淺拷貝＝滑桿/主迴圈同步兩邊）*/
+const domeGeo=new THREE.SphereGeometry(1.06,64,32,0,Math.PI*2,0,Math.PI/2);
+domeGeo.rotateX(Math.PI/2);
+domeGeo.scale(1,1,0.60/1.06);
+const domeMats={};
+SLICES.forEach(s=>{
+  if(!s.dome)return;
+  const defs={DOME:1};defs[s.define]=1;
+  domeMats[s.id]=new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:FRAG,
+    uniforms:Object.assign({},sliceMats[s.id].uniforms,{
+      uIor:{value:1.57},uDisp:{value:1},uDispStr:{value:0.035},
+      uGlowColor3:{value:new THREE.Color(s.glow[0],s.glow[1],s.glow[2])}}),
+    defines:defs});
+});
+const dome=new THREE.Mesh(domeGeo,domeMats[SLICES[0].id]||sliceMats[SLICES[0].id]);
+dome.renderOrder=2;dome.visible=false;
+
+/* 切片與蛋面同組旋轉 */
+const sliceGroup=new THREE.Group();
+sliceGroup.add(slice);sliceGroup.add(dome);
+scene.add(sliceGroup);
 
 /* 預編譯（避免切換卡頓）；編完必須還原當前選片的材質（踩過：忘還原=永遠畫最後一份） */
 function precompile(){
   SLICES.forEach(s=>{slice.material=sliceMats[s.id];renderer.compile(scene,camera);});
   slice.material=sliceMats[state.sliceId];
+  for(const id in domeMats){dome.visible=true;dome.material=domeMats[id];renderer.compile(scene,camera);}
+  applyDome();
 }
 
 /* ================================================================
@@ -529,6 +611,8 @@ const state={
   tilt:0,tiltT:0,          /* 弧度，clamp ±40° */
   zoom:1,zoomT:1,          /* 0.6–1.8 */
   backlight:1,
+  /* 蛋面：桌面預設開、觸控預設關（弱 GPU 保護），localStorage/hash 可覆寫 */
+  dome:(localStorage.getItem('lumenlens.dome')??(IS_TOUCH?'0':'1'))==='1',
 };
 const TILT_MAX=40*D2R;
 function resetView(){state.spinT=0;state.tiltT=0;state.zoomT=1;}
@@ -539,6 +623,7 @@ if(HASH.tilt!==undefined){state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,parse
 if(HASH.spin!==undefined){state.spinT=parseFloat(HASH.spin)*D2R;state.spin=state.spinT;}
 if(HASH.zoom!==undefined){state.zoomT=parseFloat(HASH.zoom);state.zoom=state.zoomT;}
 if(HASH.backlight!==undefined)state.backlight=Math.max(0,Math.min(1.5,parseFloat(HASH.backlight)));
+if(HASH.dome!==undefined)state.dome=(HASH.dome==='1'||HASH.dome===true);
 
 /* ================================================================
    [SEC:INPUT] 拖曳轉切片（相機固定）：水平=自旋 垂直=傾斜 pinch=縮放
@@ -608,9 +693,37 @@ function buildSliders(){
     val.textContent=(+inp.value).toFixed(2);
     inp.oninput=()=>{sliceMats[s.id].uniforms[sl.k].value=+inp.value;val.textContent=(+inp.value).toFixed(2);};
     row.appendChild(lab);row.appendChild(inp);box.appendChild(row);});
+  /* 蛋面支援時追加色散強度滑桿（藝術誇張量，火彩）*/
+  if(domeSupported()){
+    const dm=domeMats[s.id];
+    const row=document.createElement('div');row.className='sliderRow';
+    const lab=document.createElement('label');
+    const nm=document.createElement('span');nm.textContent=tx('色散（火彩）','Dispersion (fire)');
+    const val=document.createElement('span');val.className='val';
+    lab.appendChild(nm);lab.appendChild(val);
+    const inp=document.createElement('input');inp.type='range';
+    inp.min=0;inp.max=0.08;inp.step=0.005;
+    inp.value=dm.uniforms.uDispStr.value;
+    val.textContent=(+inp.value).toFixed(3);
+    inp.oninput=()=>{dm.uniforms.uDispStr.value=+inp.value;
+      dm.uniforms.uDisp.value=(+inp.value>0)?1:0; /* 拉到 0=關色散省效能 */
+      val.textContent=(+inp.value).toFixed(3);};
+    row.appendChild(lab);row.appendChild(inp);box.appendChild(row);
+  }
 }
+function domeSupported(){const s=curSlice();return !!(s.dome&&domeMats[s.id]);}
+function applyDome(){
+  const on=state.dome&&domeSupported();
+  dome.visible=on;slice.visible=!on;
+  if(on)dome.material=domeMats[state.sliceId];
+  $('domeRow').style.display=domeSupported()?'flex':'none';
+  $('domeChk').checked=state.dome;
+}
+$('domeChk').onchange=()=>{state.dome=$('domeChk').checked;
+  localStorage.setItem('lumenlens.dome',state.dome?'1':'0');applyDome();};
 function setSlice(id){
   state.sliceId=id;slice.material=sliceMats[id];
+  applyDome();
   renderSpecimen();buildSliders();
 }
 $('backlight').addEventListener('input',e=>{
@@ -653,9 +766,13 @@ function fpsTick(now){
     /* #debug/#shot 下不自動降級：headless 誤觸發會污染驗證截圖；錄屏不能入鏡 toast */
     if(lowSecs>=3&&!DEBUG&&!SHOT){
       lowSecs=0;
-      if(degradeStep===0&&glassOn){degradeStep=1;glassOn=false;applyGlass();
+      const dm=domeMats[state.sliceId];
+      if(degradeStep===0&&dome.visible&&dm&&dm.uniforms.uDisp.value>0.5){degradeStep=1;
+        dm.uniforms.uDisp.value=0;
+        toast(tx('效能偏低，已關閉蛋面色散（重新勾選蛋面可還原）','Low fps — dome dispersion disabled'));}
+      else if(degradeStep<=1&&glassOn){degradeStep=2;glassOn=false;applyGlass();
         toast(tx('效能偏低，已自動關閉玻璃效果（面板可重開）','Low fps — glass effect disabled (re-enable in panel)'));}
-      else if(degradeStep<=1&&PXR>1.5){degradeStep=2;PXR=1.5;renderer.setPixelRatio(PXR);onResize();}
+      else if(degradeStep<=2&&PXR>1.5){degradeStep=3;PXR=1.5;renderer.setPixelRatio(PXR);onResize();}
     }
     if(DEBUG){
       $('debugHud').textContent='fps '+fpsAvg.toFixed(1)+'\npxr '+PXR.toFixed(2)
@@ -688,6 +805,7 @@ function updateGlowColor(){
   _glowCol.setRGB(c[0],c[1],c[2]);
   glowUniforms.uGlowColor.value.lerp(_glowCol,0.08);
   tableUniforms.uGlowColor.value.lerp(_glowCol,0.08);
+  if(dome.visible)dome.material.uniforms.uGlowColor3.value.copy(glowUniforms.uGlowColor.value);
 }
 
 /* ================================================================
@@ -731,16 +849,16 @@ function animate(now){
   state.zoom+=(state.zoomT-state.zoom)*L;
   /* 自動演示（#auto 錄屏用）：傾角正弦掃 */
   if(HASH.auto){state.tiltT=Math.sin(now*0.00045)*28*D2R;state.spinT+=dt*0.15;}
-  /* 切片姿態：tilt 繞世界 X，spin 繞局部 Z */
+  /* 切片姿態：tilt 繞世界 X，spin 繞局部 Z（整組轉：平面+蛋面）*/
   _q1.setFromAxisAngle(AXIS_X,state.tilt);
   _q2.setFromAxisAngle(AXIS_Z,state.spin);
-  slice.quaternion.copy(_q1).multiply(_q2);
+  sliceGroup.quaternion.copy(_q1).multiply(_q2);
   /* 相機（固定方向，zoom = dolly）*/
   camera.position.copy(CAM_BASE).multiplyScalar(_fitK/state.zoom);
   camera.lookAt(0,0,0);
   /* uniforms */
-  const mat=slice.material;
-  _m4.makeRotationFromQuaternion(_q1.copy(slice.quaternion).invert());
+  const mat=slice.material; /* dome 材質與 slice 共用 uniform 物件，更新一份即同步 */
+  _m4.makeRotationFromQuaternion(_q1.copy(sliceGroup.quaternion).invert());
   mat.uniforms.uInvRot.value.setFromMatrix4(_m4);
   mat.uniforms.uTilt.value=state.tilt;
   mat.uniforms.uBacklight.value=state.backlight;
@@ -760,9 +878,10 @@ function animate(now){
 applyStaticLang();
 setSlice(state.sliceId);
 precompile();
+if(HASH.disp!==undefined)for(const id in domeMats)domeMats[id].uniforms.uDisp.value=(HASH.disp==='0'?0:1);
 requestAnimationFrame(animate);
 /* #debug 診斷鉤子：Claude Code 自動驗證用（同步 render + readPixels，不依賴 rAF）*/
-if(DEBUG)window.__ll={renderer,scene,camera,slice,sliceMats,state,glowUniforms,tableUniforms,
+if(DEBUG)window.__ll={renderer,scene,camera,slice,sliceMats,dome,domeMats,sliceGroup,applyDome,state,glowUniforms,tableUniforms,
   frame(){animate(performance.now());},
   probe(pts){ /* pts=[[x01,y01],...] 相對viewport 0..1，回傳 RGBA */
     this.frame();

@@ -347,7 +347,8 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
 #endif
 
 #ifdef SLICE_TRAPICHE
-  /* 六重角向扇區：臂=吸收體 */
+#ifndef DOME
+  /* 六重角向扇區：臂=吸收體（平面版：2D 遮罩）*/
   float a=mod(th,PI/3.0);
   float dAng=abs(a-PI/6.0);
   float s=dAng*max(r,0.001);
@@ -359,12 +360,17 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
   float core=1.0-smoothstep(0.07,0.11,dHex);  /* 收束的小六角核（錨點）*/
   float enrich=(1.0-smoothstep(0.0,0.02,abs(s-w)))*smoothstep(0.10,0.35,r);
   float grain=fbm(p*18.0);
+  float armStuff=arm*uArmDensity*(0.6+0.4*grain)+enrich*uEnrich*1.6+core*uCoreDensity;
+#else
+  /* 蛋面版：臂/富集/核不畫在底面——改走 wallOD 體積積分（實體六壁＋六角核柱）。
+     底面取樣在高蛋面斜視會被折射踢出閃電形轉折（踩過），且真標本臂本來就是貫穿牆 */
+  float armStuff=0.0;
+#endif
   float growth=1.0+0.06*sin(r*42.0+3.0*fbm(p*4.0));
   /* 秘密花園：內裂/包裹體霧狀域 + 扇區明暗差（錨點 trapiche_3）*/
   float garden=smoothstep(0.45,0.78,fbm(p*6.5+vec2(2.2,5.5)))*0.55;
   float sec=floor(mod(th+PI,TAU)/(PI/3.0));
   float secVar=0.88+0.24*hash(vec2(sec,3.7));
-  float armStuff=arm*uArmDensity*(0.6+0.4*grain)+enrich*uEnrich*1.6+core*uCoreDensity;
   vec3 sigBody=vec3(2.5,0.42,1.9);            /* 濃郁祖母綠（吸紅藍透綠）*/
   vec3 sigArm=vec3(0.9,0.95,1.05);
   T=exp(-(sigBody*(0.80*growth*secVar+garden)+sigArm*armStuff)*pathLen);
@@ -430,9 +436,12 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
   vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
   col+=irisAdd;
   col+=T*0.04;
-  /* 磨邊亮線（假厚度）*/
+#ifndef DOME
+  /* 磨邊亮線（假厚度）——平面版限定：蛋面有自己的 Fresnel/rim，
+     這條經蛋面折射會在臂末端被抹成破圖條紋（用戶回報）*/
   float rim=smoothstep(0.05,0.008,-sd);
   col+=rim*(0.04+0.28*uBacklight)*vec3(0.85,0.92,1.0)*0.55;
+#endif
   return col;
 }
 
@@ -450,13 +459,80 @@ vec3 domeSample(vec3 P,vec3 I,vec3 nl,float ior){
     c=vec3(0.92,0.96,1.0)*uBacklight*exp(-rr*0.55)*0.85;} /* 外形外＝透看光桌 */
   return c;
 }
+
+#ifdef SLICE_TRAPICHE
+/* [實體六壁] 蛋面版的臂＝三條過原點的垂直牆板（6 臂=3 線）＋六角核柱，
+   對折射線做解析求交積分（無迴圈）：俯視＝跟 2D 版同款六臂；斜視＝臂是
+   貫穿厚度的實體牆、黑核浮在蛋面頂點下（錨點照特徵）。
+   回傳沿線穿牆的透射率，乘在 domeSample 的透光上 */
+vec3 wallOD(vec3 P,vec3 rd,float tSeg,float pl){
+  float od=0.0,odC=0.0;
+  float tN=max(tSeg,1e-3);
+  float hN=max(uDomeH,0.2);
+  for(int j=0;j<3;j++){
+    float phi=float(j)*(PI/3.0)+PI/6.0;          /* 牆線方位 30/90/150deg */
+    vec2 n=vec2(-sin(phi),cos(phi));             /* 牆法線（xy）*/
+    float dn=dot(rd.xy,n);
+    float adn=max(abs(dn),1e-3);
+    float tj=clamp(-dot(P.xy,n)/(dn>=0.0?adn:-adn),0.0,tSeg);
+    vec2 q=P.xy+rd.xy*tj;                        /* 最接近牆的採樣點 */
+    float rq=length(q);
+    float dq=abs(dot(q,n));
+    float g1=fbm(vec2(atan(q.y,q.x)*3.2,rq*6.0));
+    float w=uArmWidth*(0.35+0.65*rq);
+    /* 邊緣寬度與臂寬成比例（+0.006 只防零）：固定 +0.03 在臂寬 0.02 時比臂本體寬，
+       低參數整片暈成水墨畫（用戶回報）*/
+    float cov=1.0-smoothstep(w*(0.80+0.3*g1),w*1.4+0.006,dq);
+    float Lf=min(2.0*w/max(abs(dn),0.02),tSeg)/tN; /* 路徑落在牆內的比例（垂直看=1）*/
+    od+=cov*(0.6+0.4*g1)*uArmDensity*Lf;
+    float sheath=(1.0-smoothstep(0.0,0.02,abs(dq-w)))*smoothstep(0.10,0.35,rq);
+    od+=sheath*uEnrich*1.6*min(0.06/max(abs(dn),0.03),tSeg)/tN; /* 邊界富集薄鞘 */
+  }
+  /* 海星蓋：貼著頂面的六爪星形「表層」（近入射點採樣，厚度感靠 od 常數）——
+     俯視＝六爪往外抓的完整海星；斜視＝只在頂點附近的暗蓋。
+     不能做成貫穿全深的牆板加寬：側視會變成中段大寬翼（踩過） */
+  vec3 qs=P+rd*min(0.16*tSeg,0.35);
+  float rqS=length(qs.xy);
+  float aS=abs(mod(atan(qs.y,qs.x),PI/3.0)-PI/6.0);
+  float sS=aS*max(rqS,0.001);
+  /* 縮小＋柔邊（v3.3 用戶回報：星太張牙舞爪，跟溝斑疊在一起像失敗的花瓣）*/
+  float wS=uArmWidth*0.5+(0.035+0.5*uArmWidth)*(1.0-smoothstep(0.05,0.34,rqS));
+  float covS=(1.0-smoothstep(wS*0.75,wS*1.5+0.015,sS))*(1.0-smoothstep(0.28,0.42,rqS));
+  /* 蜂巢窗：星蓋在六角核正上方稍微讓開，hex 壁（hexRim）才讀得出蜂巢結構 */
+  vec2 e2S=vec2(0.5,0.8660),e3S=vec2(-0.5,0.8660);
+  float dHexS=max(abs(qs.x),max(abs(dot(qs.xy,e2S)),abs(dot(qs.xy,e3S))));
+  covS*=1.0-0.4*(1.0-smoothstep(0.05,0.085,dHexS));
+  od+=covS*uArmDensity*0.45;
+  /* 六角核柱＝蜂巢：hex 壁比內部濃（hexRim），內部吸收偏「透深綠」不是死黑；
+     垂直明暗（用戶錨點：背光標本頂暗、底透半透深色）＝depthW 隨 z 平方拉開 */
+  float rl=max(dot(rd.xy,rd.xy),1e-5);
+  float tc=clamp(-dot(P.xy,rd.xy)/rl,0.0,tSeg);
+  vec3 qc3=P+rd*tc;
+  vec2 qc=qc3.xy;
+  vec2 e2=vec2(0.5,0.8660),e3=vec2(-0.5,0.8660);
+  float dHexC=max(abs(qc.x),max(abs(dot(qc,e2)),abs(dot(qc,e3))));
+  float covC=1.0-smoothstep(0.07,0.11,dHexC);
+  float hexRim=1.0-smoothstep(0.020,0.050,abs(dHexC-0.088));
+  float chord=2.0*sqrt(max(0.11*0.11-dHexC*dHexC,0.0))/max(sqrt(rl),0.08);
+  float zn=clamp(qc3.z/hN,0.0,1.0);
+  /* 底 0.72 不是 0.32：核心骨幹要「保留深度但不透明低」（用戶回饋）——
+     漸層留著（頂 2.6 倍於底），整體吸收拉高＝柱體實心感 */
+  float depthW=mix(0.72,1.90,zn*zn);
+  odC+=(covC*uCoreDensity+hexRim*1.1)*depthW*min(chord,tSeg)/tN;
+  /* 臂＝偏中性吸收；核＝吸紅藍透綠（深綠半透，錨點照的核不是黑是墨綠）*/
+  return exp(-(vec3(0.9,0.95,1.05)*od+vec3(1.7,0.62,1.35)*odC)*pl);
+}
+#endif
 #endif
 
 void main(){
 #ifdef DOME
   vec3 camL=uInvRot*cameraPosition;
   vec3 I=normalize(vPos-camL);
-  vec3 nl=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(uDomeH*uDomeH))); /* 橢球解析法線（高度可調）*/
+  /* nl0=乾淨橢球法線（餵折射/Fresnel/形體陰影）；nl=V溝擾動後（只餵反光層）。
+     溝若扭曲折射，牆體取樣會沿臂抹成花瓣狀暗斑（v3.3 用戶回報「海星失敗像花瓣」）*/
+  vec3 nl0=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(uDomeH*uDomeH)));
+  vec3 nl=nl0;
   float grooveAO=1.0;
 #ifdef SLICE_TRAPICHE
   /* [V溝] 六臂＝切進表面的 V 形溝槽（參照 trapiche_3 紅標）：法線沿垂直臂方向倒向兩壁
@@ -464,24 +540,33 @@ void main(){
   float thG=atan(vPos.y,vPos.x), rG=length(vPos.xy);
   float aG=mod(thG,PI/3.0)-PI/6.0;
   float sG=aG*max(rG,0.001);                       /* 到臂軸的帶號弧距 */
-  float wG=uArmWidth*(0.35+0.65*rG)*2.2+0.012;     /* 溝半寬跟著臂寬走 */
+  float wG=uArmWidth*(0.35+0.65*rG)*1.7+0.008;     /* 溝半寬跟著臂寬走（別比臂寬太多：低臂寬時溝斑會蓋過臂線）*/
   float inG=1.0-smoothstep(wG*0.75,wG*1.3,abs(sG));
   float wall=sign(sG)*inG*smoothstep(0.0,wG*0.4,abs(sG)); /* V 壁：兩側斜率相反，谷底/溝緣平滑 */
   float thA=thG-aG;
   vec3 gPer=vec3(-sin(thA),cos(thA),0.0);          /* 垂直臂軸的切向 */
-  float gAmp=0.55*smoothstep(0.10,0.30,rG)*(1.0-smoothstep(0.88,1.04,rG));
+  /* 邊緣提早收（0.70–0.94）：陡峭區的溝折射會把亮線抹成放射狀破圖條紋（用戶回報）*/
+  float gAmp=0.55*smoothstep(0.10,0.30,rG)*(1.0-smoothstep(0.70,0.94,rG));
   nl=normalize(nl-gPer*wall*gAmp);
   grooveAO=1.0-inG*0.35;                           /* 谷底遮蔽：反射項壓暗＝凹進去 */
 #endif
-  float ndi=max(dot(-I,nl),0.0);
+  float ndi=max(dot(-I,nl0),0.0);
   float F=0.045+0.955*pow(1.0-ndi,5.0);
   vec3 trans;
   if(uDisp>0.5){ /* 三波長色散（火彩）。uDispStr 是藝術誇張量：
        物理值(Δn≈0.012)在蛋面尺度位移<1px 不可見，放大才有莫臥兒果凍的光譜邊 */
-    trans=vec3(domeSample(vPos,I,nl,uIor-0.85*uDispStr).r,
-               domeSample(vPos,I,nl,uIor).g,
-               domeSample(vPos,I,nl,uIor+uDispStr).b);
-  }else trans=domeSample(vPos,I,nl,uIor);
+    trans=vec3(domeSample(vPos,I,nl0,uIor-0.85*uDispStr).r,
+               domeSample(vPos,I,nl0,uIor).g,
+               domeSample(vPos,I,nl0,uIor+uDispStr).b);
+  }else trans=domeSample(vPos,I,nl0,uIor);
+#ifdef SLICE_TRAPICHE
+  /* 實體六壁＋核柱：用主波長折射線積分一次（臂是暗吸收體，色散位移看不見）*/
+  vec3 rdW=refract(I,nl0,1.0/uIor);
+  if(dot(rdW,rdW)>1e-4&&rdW.z<-0.03){
+    float tW=-vPos.z/rdW.z;
+    trans*=wallOD(vPos,rdW,tW,uThickness*(0.72+0.5*min(tW,1.6)));
+  }
+#endif
   vec3 rdir=reflect(I,nl);
   vec3 refl=mix(vec3(0.006),uGlowColor3*0.30*uBacklight,smoothstep(0.1,-0.7,rdir.z));
   /* [前光] uKeyDir 由 JS 每幀餵（世界空間）：跟隨視角 or 固定燈位兩模式 */
@@ -501,7 +586,10 @@ void main(){
   float halo=haloBand*arcGate*smoothstep(0.12,0.35,ndi);
   vec3 front=(halo*1.35+pow(ndh,9.0)*0.03+pow(ndh,240.0)*0.55)*uFrontLight*vec3(0.93,0.96,1.0);
   float rimGlow=pow(1.0-ndi,2.6);
-  vec3 col=trans*(1.0-F)+refl*F*grooveAO+vec3(spec)*grooveAO+front*grooveAO;
+  /* 球體素描形體陰影（用戶紫圈）：透射體隨面轉離視線壓暗＝外環暗帶；
+     最外緣的 Fresnel 反光/rim glow/前光弧不吃 form，保留「最外環反光」*/
+  float form=mix(0.32,1.0,smoothstep(0.08,0.50,ndi));
+  vec3 col=trans*(1.0-F)*form+refl*F*grooveAO+vec3(spec)*grooveAO+front*grooveAO;
   col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight)*grooveAO; /* 果凍水潤邊 */
 #ifdef SLICE_TRAPICHE
   /* [貓眼] 六扇區各自獨立的絲光帶（反光路徑，疊在透光之上，跟色散是兩層）

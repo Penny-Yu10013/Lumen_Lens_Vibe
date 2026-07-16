@@ -273,7 +273,7 @@ uniform mat3 uInvRot;
 uniform float uArmWidth,uArmDensity,uEnrich,uCoreDensity;
 uniform float uBandFreq,uSharp,uTintShift,uRound,uRayLine;
 uniform float uBandDensity,uD0,uDGrad,uIrisGain;
-uniform float uIor,uDisp,uDispStr;
+uniform float uIor,uDisp,uDispStr,uDomeH;
 uniform vec3 uGlowColor3;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -449,7 +449,7 @@ void main(){
 #ifdef DOME
   vec3 camL=uInvRot*cameraPosition;
   vec3 I=normalize(vPos-camL);
-  vec3 nl=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(0.60*0.60))); /* 橢球解析法線 */
+  vec3 nl=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(uDomeH*uDomeH))); /* 橢球解析法線（高度可調）*/
   float ndi=max(dot(-I,nl),0.0);
   float F=0.045+0.955*pow(1.0-ndi,5.0);
   vec3 trans;
@@ -467,6 +467,27 @@ void main(){
   float rimGlow=pow(1.0-ndi,2.6);
   vec3 col=trans*(1.0-F)+refl*F+vec3(spec);
   col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight); /* 果凍水潤邊 */
+#ifdef SLICE_TRAPICHE
+  /* [貓眼] 六扇區各自獨立的絲光帶（反光路徑，疊在透光之上，跟色散是兩層）
+     每扇區固定纖維方向=扇區心徑向 → 帶垂直纖維（切向）；cone 項 pow(sinTH)
+     × 沿垂直纖維方向拉長的 normal lobe → 帶狀不是整片亮；拖曳改變局部 H → 掃過 */
+  float thS=atan(vPos.y,vPos.x);
+  float rS=length(vPos.xy);
+  float secK=floor(mod(thS+PI/6.0,TAU)/(PI/3.0));
+  float phiC=secK*PI/3.0;
+  vec3 fT=vec3(cos(phiC),sin(phiC),0.0);           /* 纖維切線（徑向）*/
+  vec3 fP=vec3(-fT.y,fT.x,0.0);                    /* 垂直纖維（帶的走向）*/
+  float dTH=dot(fT,H);
+  float sinTH=sqrt(max(1.0-dTH*dTH,0.0));
+  vec3 nP=normalize(nl-fP*dot(nl,fP));             /* 沿帶向拉長的有效法線 */
+  float lobe=pow(max(dot(nP,H),0.0),14.0);
+  float dAngS=abs(mod(thS,PI/3.0)-PI/6.0);         /* 到最近臂軸的角距 */
+  float secGate=smoothstep(0.10,0.24,dAngS);       /* 離臂夠遠才亮 → 六道天生分開 */
+  float radGate=smoothstep(0.15,0.35,rS)*(1.0-smoothstep(0.85,1.02,rS));
+  float silk=0.78+0.22*vnoise(vec2(dot(vPos.xy,fP.xy)*26.0,secK*7.3));
+  float cat=pow(sinTH,80.0)*lobe*secGate*radGate*silk*2.6;
+  col+=cat*vec3(0.72,1.0,0.85)*(0.35+0.65*uBacklight);
+#endif
   col=col/(1.0+col);
   col=pow(col,vec3(0.4545));
   gl_FragColor=vec4(col,1.0);
@@ -574,14 +595,22 @@ slice.renderOrder=2;
    材質與平面版共用同一組 uniform 物件（Object.assign 淺拷貝＝滑桿/主迴圈同步兩邊）*/
 const domeGeo=new THREE.SphereGeometry(1.06,64,32,0,Math.PI*2,0,Math.PI/2);
 domeGeo.rotateX(Math.PI/2);
-domeGeo.scale(1,1,0.60/1.06);
+const domeBasePos=domeGeo.attributes.position.array.slice(); /* c=1.06 基準，applyDomeH 由此縮放 */
+/* 蛋面高度：CPU 重寫頂點 z（滑桿事件才跑，非每幀）＋uDomeH 餵 shader 法線 */
+function applyDomeH(h){
+  const arr=domeGeo.attributes.position.array,k=h/1.06;
+  for(let i=2;i<arr.length;i+=3)arr[i]=domeBasePos[i]*k;
+  domeGeo.attributes.position.needsUpdate=true;
+  domeGeo.computeBoundingSphere();
+  for(const id in domeMats)domeMats[id].uniforms.uDomeH.value=h;
+}
 const domeMats={};
 SLICES.forEach(s=>{
   if(!s.dome)return;
   const defs={DOME:1};defs[s.define]=1;
   domeMats[s.id]=new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:FRAG,
     uniforms:Object.assign({},sliceMats[s.id].uniforms,{
-      uIor:{value:1.57},uDisp:{value:1},uDispStr:{value:0.035},
+      uIor:{value:1.57},uDisp:{value:1},uDispStr:{value:0.035},uDomeH:{value:0.72},
       uGlowColor3:{value:new THREE.Color(s.glow[0],s.glow[1],s.glow[2])}}),
     defines:defs});
 });
@@ -592,6 +621,7 @@ dome.renderOrder=2;dome.visible=false;
 const sliceGroup=new THREE.Group();
 sliceGroup.add(slice);sliceGroup.add(dome);
 scene.add(sliceGroup);
+applyDomeH(0.72); /* 預設比 v1 的 0.60 更圓厚（用戶回饋）*/
 
 /* 預編譯（避免切換卡頓）；編完必須還原當前選片的材質（踩過：忘還原=永遠畫最後一份） */
 function precompile(){
@@ -693,22 +723,26 @@ function buildSliders(){
     val.textContent=(+inp.value).toFixed(2);
     inp.oninput=()=>{sliceMats[s.id].uniforms[sl.k].value=+inp.value;val.textContent=(+inp.value).toFixed(2);};
     row.appendChild(lab);row.appendChild(inp);box.appendChild(row);});
-  /* 蛋面支援時追加色散強度滑桿（藝術誇張量，火彩）*/
+  /* 蛋面支援時追加：色散強度＋蛋面高度滑桿 */
   if(domeSupported()){
     const dm=domeMats[s.id];
-    const row=document.createElement('div');row.className='sliderRow';
-    const lab=document.createElement('label');
-    const nm=document.createElement('span');nm.textContent=tx('色散（火彩）','Dispersion (fire)');
-    const val=document.createElement('span');val.className='val';
-    lab.appendChild(nm);lab.appendChild(val);
-    const inp=document.createElement('input');inp.type='range';
-    inp.min=0;inp.max=0.08;inp.step=0.005;
-    inp.value=dm.uniforms.uDispStr.value;
-    val.textContent=(+inp.value).toFixed(3);
-    inp.oninput=()=>{dm.uniforms.uDispStr.value=+inp.value;
-      dm.uniforms.uDisp.value=(+inp.value>0)?1:0; /* 拉到 0=關色散省效能 */
-      val.textContent=(+inp.value).toFixed(3);};
-    row.appendChild(lab);row.appendChild(inp);box.appendChild(row);
+    const addRow=(label,min,max,step,get,set,fix)=>{
+      const row=document.createElement('div');row.className='sliderRow';
+      const lab=document.createElement('label');
+      const nm=document.createElement('span');nm.textContent=label;
+      const val=document.createElement('span');val.className='val';
+      lab.appendChild(nm);lab.appendChild(val);
+      const inp=document.createElement('input');inp.type='range';
+      inp.min=min;inp.max=max;inp.step=step;inp.value=get();
+      val.textContent=(+inp.value).toFixed(fix);
+      inp.oninput=()=>{set(+inp.value);val.textContent=(+inp.value).toFixed(fix);};
+      row.appendChild(lab);row.appendChild(inp);box.appendChild(row);};
+    addRow(tx('色散（火彩）','Dispersion (fire)'),0,0.12,0.005,
+      ()=>dm.uniforms.uDispStr.value,
+      v=>{dm.uniforms.uDispStr.value=v;dm.uniforms.uDisp.value=v>0?1:0;},3);
+    addRow(tx('蛋面高度','Dome height'),0.35,1.05,0.01,
+      ()=>dm.uniforms.uDomeH.value,
+      v=>applyDomeH(v),2);
   }
 }
 function domeSupported(){const s=curSlice();return !!(s.dome&&domeMats[s.id]);}

@@ -151,6 +151,11 @@ body.shot #panelBtn,body.shot #hint{display:none!important}
     <label><span data-i18n="backlight">背光</span><span class="val" id="backlightVal">1.00</span></label>
     <input type="range" id="backlight" min="0" max="1.5" step="0.01" value="1">
   </div>
+  <div class="sliderRow" id="frontRow">
+    <label><span data-i18n="frontlight">前光</span><span class="val" id="frontlightVal">0.60</span></label>
+    <input type="range" id="frontlight" min="0" max="1.5" step="0.01" value="0.6">
+  </div>
+  <label class="chkRow" id="keyFollowRow"><input type="checkbox" id="keyFollowChk" checked><span data-i18n="keyfollow">前光跟隨視角</span></label>
   <hr>
   <div class="pTitle" id="paramTitle" data-i18n="params">標本參數</div>
   <div id="paramSliders" style="display:flex;flex-direction:column;gap:12px"></div>
@@ -199,6 +204,8 @@ const I18N_STATIC={
   subtitle:{zh:'寶石透鏡',en:'THE GEM LENS'},
   lighttable:{zh:'光桌',en:'LIGHT TABLE'},
   backlight:{zh:'背光',en:'Backlight'},
+  frontlight:{zh:'前光',en:'Key light'},
+  keyfollow:{zh:'前光跟隨視角',en:'Key light follows view'},
   params:{zh:'標本參數',en:'SPECIMEN'},
   glassfx:{zh:'玻璃效果',en:'Glass effect'},
   reset:{zh:'視角回正',en:'Reset view'},
@@ -273,8 +280,8 @@ uniform mat3 uInvRot;
 uniform float uArmWidth,uArmDensity,uEnrich,uCoreDensity;
 uniform float uBandFreq,uSharp,uTintShift,uRound,uRayLine;
 uniform float uBandDensity,uD0,uDGrad,uIrisGain;
-uniform float uIor,uDisp,uDispStr,uDomeH;
-uniform vec3 uGlowColor3;
+uniform float uIor,uDisp,uDispStr,uDomeH,uFrontLight;
+uniform vec3 uGlowColor3,uKeyDir;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
 float vnoise(vec2 q){vec2 i=floor(q),f=fract(q);f=f*f*(3.0-2.0*f);
@@ -450,6 +457,22 @@ void main(){
   vec3 camL=uInvRot*cameraPosition;
   vec3 I=normalize(vPos-camL);
   vec3 nl=normalize(vec3(vPos.xy/(1.06*1.06),vPos.z/(uDomeH*uDomeH))); /* 橢球解析法線（高度可調）*/
+  float grooveAO=1.0;
+#ifdef SLICE_TRAPICHE
+  /* [V溝] 六臂＝切進表面的 V 形溝槽（參照 trapiche_3 紅標）：法線沿垂直臂方向倒向兩壁
+     → 折射圖案在溝內扭曲、兩壁吃前光/Fresnel 不同＝立體溝痕，不是畫上去的線 */
+  float thG=atan(vPos.y,vPos.x), rG=length(vPos.xy);
+  float aG=mod(thG,PI/3.0)-PI/6.0;
+  float sG=aG*max(rG,0.001);                       /* 到臂軸的帶號弧距 */
+  float wG=uArmWidth*(0.35+0.65*rG)*2.2+0.012;     /* 溝半寬跟著臂寬走 */
+  float inG=1.0-smoothstep(wG*0.75,wG*1.3,abs(sG));
+  float wall=sign(sG)*inG*smoothstep(0.0,wG*0.4,abs(sG)); /* V 壁：兩側斜率相反，谷底/溝緣平滑 */
+  float thA=thG-aG;
+  vec3 gPer=vec3(-sin(thA),cos(thA),0.0);          /* 垂直臂軸的切向 */
+  float gAmp=0.55*smoothstep(0.10,0.30,rG)*(1.0-smoothstep(0.88,1.04,rG));
+  nl=normalize(nl-gPer*wall*gAmp);
+  grooveAO=1.0-inG*0.35;                           /* 谷底遮蔽：反射項壓暗＝凹進去 */
+#endif
   float ndi=max(dot(-I,nl),0.0);
   float F=0.045+0.955*pow(1.0-ndi,5.0);
   vec3 trans;
@@ -461,12 +484,25 @@ void main(){
   }else trans=domeSample(vPos,I,nl,uIor);
   vec3 rdir=reflect(I,nl);
   vec3 refl=mix(vec3(0.006),uGlowColor3*0.30*uBacklight,smoothstep(0.1,-0.7,rdir.z));
-  vec3 keyL=normalize(uInvRot*normalize(vec3(-0.35,0.45,0.82)));
+  /* [前光] uKeyDir 由 JS 每幀餵（世界空間）：跟隨視角 or 固定燈位兩模式 */
+  vec3 keyL=normalize(uInvRot*uKeyDir);
   vec3 H=normalize(keyL-I);
-  float spec=pow(max(dot(nl,H),0.0),240.0)*1.1+pow(max(dot(nl,H),0.0),14.0)*0.05;
+  float ndh=max(dot(nl,H),0.0);
+  float spec=pow(ndh,240.0)*1.1+pow(ndh,14.0)*0.05;
+  /* 天使光環＝輪廓座標系的頂部弧帶（珍珠 angel ring 做法）。
+     法線空間 lobe 在扁蛋面上會糊成整片光帽（頂部法線變化太慢，踩過兩輪）；
+     改用世界座標半徑定弧帶、uKeyDir 的 xy 投影定弧的方位＝跟隨/固定兩模式都吃 */
+  vec2 wq=vWorldPos.xy/1.06;
+  float wr=length(wq);
+  vec2 arcDir=normalize(uKeyDir.xy+vec2(0.0,1e-3));
+  float arcT=dot(wq/max(wr,1e-4),arcDir);
+  float haloBand=smoothstep(0.50,0.60,wr)*(1.0-smoothstep(0.72,0.84,wr));
+  float arcGate=smoothstep(0.15,0.65,arcT);
+  float halo=haloBand*arcGate*smoothstep(0.12,0.35,ndi);
+  vec3 front=(halo*1.35+pow(ndh,9.0)*0.03+pow(ndh,240.0)*0.55)*uFrontLight*vec3(0.93,0.96,1.0);
   float rimGlow=pow(1.0-ndi,2.6);
-  vec3 col=trans*(1.0-F)+refl*F+vec3(spec);
-  col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight); /* 果凍水潤邊 */
+  vec3 col=trans*(1.0-F)+refl*F*grooveAO+vec3(spec)*grooveAO+front*grooveAO;
+  col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight)*grooveAO; /* 果凍水潤邊 */
 #ifdef SLICE_TRAPICHE
   /* [貓眼] 六扇區各自獨立的絲光帶（反光路徑，疊在透光之上，跟色散是兩層）
      每扇區固定纖維方向=扇區心徑向 → 帶垂直纖維（切向）；cone 項 pow(sinTH)
@@ -562,6 +598,7 @@ const CAM_BASE=new THREE.Vector3(0,-0.78,3.5);
 
 function makeCommonUniforms(){return{
   uBacklight:{value:1},uThickness:{value:1},uTilt:{value:0},uTime:{value:0},
+  uFrontLight:{value:0.6},uKeyDir:{value:new THREE.Vector3(-0.35,0.45,0.82)},
   uInvRot:{value:new THREE.Matrix3()}};}
 
 const tableUniforms={uBacklight:{value:1},uTime:{value:0},uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)}};
@@ -641,6 +678,9 @@ const state={
   tilt:0,tiltT:0,          /* 弧度，clamp ±40° */
   zoom:1,zoomT:1,          /* 0.6–1.8 */
   backlight:1,
+  frontLight:0.6,
+  /* 前光方向【人類決 2026-07-17】：跟隨視角先行，固定燈位保留為選項（面板可切） */
+  keyFollow:localStorage.getItem('lumenlens.keyfollow')!=='0',
   /* 蛋面：桌面預設開、觸控預設關（弱 GPU 保護），localStorage/hash 可覆寫 */
   dome:(localStorage.getItem('lumenlens.dome')??(IS_TOUCH?'0':'1'))==='1',
 };
@@ -653,6 +693,8 @@ if(HASH.tilt!==undefined){state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,parse
 if(HASH.spin!==undefined){state.spinT=parseFloat(HASH.spin)*D2R;state.spin=state.spinT;}
 if(HASH.zoom!==undefined){state.zoomT=parseFloat(HASH.zoom);state.zoom=state.zoomT;}
 if(HASH.backlight!==undefined)state.backlight=Math.max(0,Math.min(1.5,parseFloat(HASH.backlight)));
+if(HASH.front!==undefined)state.frontLight=Math.max(0,Math.min(1.5,parseFloat(HASH.front)));
+if(HASH.keyfix!==undefined)state.keyFollow=!(HASH.keyfix==='1'||HASH.keyfix===true);
 if(HASH.dome!==undefined)state.dome=(HASH.dome==='1'||HASH.dome===true);
 
 /* ================================================================
@@ -751,6 +793,9 @@ function applyDome(){
   dome.visible=on;slice.visible=!on;
   if(on)dome.material=domeMats[state.sliceId];
   $('domeRow').style.display=domeSupported()?'flex':'none';
+  /* 前光只作用在蛋面 shader，平面檢視時藏掉 */
+  $('frontRow').style.display=on?'flex':'none';
+  $('keyFollowRow').style.display=on?'flex':'none';
   $('domeChk').checked=state.dome;
 }
 $('domeChk').onchange=()=>{state.dome=$('domeChk').checked;
@@ -765,6 +810,14 @@ $('backlight').addEventListener('input',e=>{
   $('backlightVal').textContent=state.backlight.toFixed(2);});
 $('backlight').value=state.backlight;
 $('backlightVal').textContent=state.backlight.toFixed(2);
+$('frontlight').addEventListener('input',e=>{
+  state.frontLight=+e.target.value;
+  $('frontlightVal').textContent=state.frontLight.toFixed(2);});
+$('frontlight').value=state.frontLight;
+$('frontlightVal').textContent=state.frontLight.toFixed(2);
+$('keyFollowChk').checked=state.keyFollow;
+$('keyFollowChk').onchange=()=>{state.keyFollow=$('keyFollowChk').checked;
+  localStorage.setItem('lumenlens.keyfollow',state.keyFollow?'1':'0');};
 $('resetBtn').onclick=resetView;
 $('langBtn').onclick=()=>{
   UI_LANG=UI_LANG==='zh'?'en':'zh';localStorage.setItem('lumenlens.lang',UI_LANG);
@@ -853,6 +906,7 @@ const MODES=[{id:'lightTable',update(dt){}}];
    ================================================================ */
 const _q1=new THREE.Quaternion(),_q2=new THREE.Quaternion(),_m4=new THREE.Matrix4();
 const AXIS_X=new THREE.Vector3(1,0,0),AXIS_Z=new THREE.Vector3(0,0,1);
+const _keyW=new THREE.Vector3(),KEY_FIXED=new THREE.Vector3(-0.35,0.45,0.82).normalize();
 let _vw=0,_vh=0,_fitK=1;
 function onResize(){
   const w=window.innerWidth,h=window.innerHeight;
@@ -897,6 +951,11 @@ function animate(now){
   mat.uniforms.uTilt.value=state.tilt;
   mat.uniforms.uBacklight.value=state.backlight;
   mat.uniforms.uTime.value=now*0.001;
+  /* 前光方向（世界空間）：跟隨式＝觀察者方向抬高（頭燈偏上），固定式＝攝影棚燈位 */
+  if(state.keyFollow){_keyW.copy(camera.position).normalize();_keyW.y+=1.25;_keyW.normalize();}
+  else _keyW.copy(KEY_FIXED);
+  mat.uniforms.uKeyDir.value.copy(_keyW);
+  mat.uniforms.uFrontLight.value=state.frontLight;
   tableUniforms.uBacklight.value=state.backlight;
   tableUniforms.uTime.value=now*0.001;
   glowUniforms.uGlow.value=0.40*state.backlight+0.05;

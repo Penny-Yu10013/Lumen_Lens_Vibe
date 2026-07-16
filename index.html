@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lumen Lens 寶石透鏡</title>
+<!-- ===== OG meta：文案【人類決】插槽，上線前由用戶定稿 ===== -->
+<meta property="og:title" content="Lumen Lens — 寶石透鏡">
+<meta property="og:description" content="一張光桌，看見寶石的內部世界。">
+<meta name="description" content="Lumen Lens 寶石透鏡：黑底光桌上的寶石光學現象觀察台。達碧茲、Liddicoatite、彩虹瑪瑙。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;500;700&family=Noto+Sans+TC:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   [SEC:CSS-BASE] 基礎與版面
+   ================================================================ */
+:root{
+  --bg:#050508; --text:#e9edf4; --dim:#98a2b3; --line:rgba(255,255,255,.10);
+  --accent:#9fd6ff; --glass-bg:rgba(13,15,24,.42);
+  --font:'Manrope','Noto Sans TC',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+@supports (height:100svh){ html,body{height:100svh} }
+body{font-family:var(--font);color:var(--text);position:relative}
+#gl{position:fixed;inset:0;display:block;touch-action:none;cursor:grab}
+#gl.grabbing{cursor:grabbing}
+
+/* ================================================================
+   [SEC:CSS-GLASS] 玻璃面板（backdrop-filter；.no-glass = 降級）
+   ================================================================ */
+.glass{
+  background:var(--glass-bg);
+  -webkit-backdrop-filter:blur(18px) saturate(1.5);
+  backdrop-filter:blur(18px) saturate(1.5);
+  border:1px solid var(--line);
+  border-top-color:rgba(255,255,255,.22);
+  border-radius:18px;
+  box-shadow:0 8px 32px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+}
+body.no-glass .glass{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(9,11,17,.92)}
+
+/* ================================================================
+   [SEC:CSS-LOGO] LL 疊字 placeholder
+   <!-- LOGO SLOT: 正式 LL 疊字視覺之後替換，容器 48×48 不動 -->
+   ================================================================ */
+#logo{position:fixed;top:18px;left:20px;z-index:10;display:flex;align-items:center;gap:12px;user-select:none}
+#llmark{position:relative;width:48px;height:48px;flex-shrink:0}
+#llmark .ll{position:absolute;font-weight:300;font-size:40px;line-height:48px;letter-spacing:0;
+  color:transparent;-webkit-text-stroke:1px rgba(220,235,255,.9);
+  text-shadow:0 0 12px rgba(140,190,255,.35);left:6px;top:0}
+#llmark .ll2{left:16px;top:2px;-webkit-text-stroke:1px rgba(160,210,255,.45);text-shadow:0 0 16px rgba(140,190,255,.25)}
+#wordmark{font-size:15px;font-weight:500;letter-spacing:.22em;color:var(--text)}
+#wordmark small{display:block;font-size:10px;font-weight:300;letter-spacing:.5em;color:var(--dim);margin-top:2px}
+
+/* ================================================================
+   [SEC:CSS-UI] 控制面板 / 標本卡 / 按鈕
+   ================================================================ */
+#topRight{position:fixed;top:18px;right:18px;z-index:10;display:flex;gap:8px}
+.miniBtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--line);
+  background:var(--glass-bg);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  color:var(--text);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer}
+body.no-glass .miniBtn{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(9,11,17,.92)}
+.miniBtn:hover{border-color:rgba(255,255,255,.3)}
+
+#panel{position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:9;
+  width:250px;padding:18px 18px 14px;display:flex;flex-direction:column;gap:12px}
+.pTitle{font-size:11px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
+.sliderRow{display:flex;flex-direction:column;gap:4px}
+.sliderRow label{font-size:12px;color:var(--text);display:flex;justify-content:space-between}
+.sliderRow label span.val{color:var(--dim);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.18);border-radius:1px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:#dcecff;margin-top:-6px;box-shadow:0 0 8px rgba(150,200,255,.6)}
+input[type=range]::-moz-range-track{height:2px;background:rgba(255,255,255,.18)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:#dcecff}
+hr{border:none;border-top:1px solid var(--line)}
+.chkRow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer}
+#resetBtn{padding:8px;border-radius:10px;border:1px solid var(--line);background:transparent;
+  color:var(--text);font-family:var(--font);font-size:12px;cursor:pointer;letter-spacing:.1em}
+#resetBtn:hover{border-color:rgba(255,255,255,.3)}
+
+#specimen{position:fixed;left:20px;bottom:20px;z-index:9;width:300px;padding:16px 18px}
+#chips{display:flex;gap:8px;margin-bottom:12px}
+.chip{flex:1;padding:7px 4px;border-radius:10px;border:1px solid var(--line);background:transparent;
+  color:var(--dim);font-family:var(--font);font-size:11.5px;cursor:pointer;letter-spacing:.02em;
+  transition:all .25s}
+.chip.on{color:var(--text);border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.06);
+  box-shadow:0 0 14px rgba(150,200,255,.12)}
+#specName{font-size:17px;font-weight:500;letter-spacing:.05em}
+#specEn{font-size:11px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
+#specMeta{font-size:11px;color:var(--accent);margin-top:8px;letter-spacing:.08em;opacity:.85}
+#specLine{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.65}
+
+#panelBtn{position:fixed;right:16px;bottom:20px;z-index:11;display:none;font-size:17px}
+#hint{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:8;
+  font-size:11px;color:var(--dim);letter-spacing:.15em;opacity:.7;pointer-events:none;
+  transition:opacity 1.2s}
+#hint.gone{opacity:0}
+
+#debugHud{position:fixed;left:20px;top:84px;z-index:20;display:none;
+  font-size:11px;font-family:ui-monospace,monospace;color:#8f8;background:rgba(0,0,0,.55);
+  padding:6px 10px;border-radius:8px;white-space:pre;pointer-events:none}
+body.debug #debugHud{display:block}
+#toast{position:fixed;left:50%;top:76px;transform:translateX(-50%);z-index:30;
+  padding:9px 18px;border-radius:12px;font-size:12.5px;color:var(--text);
+  background:rgba(15,18,28,.9);border:1px solid var(--line);opacity:0;pointer-events:none;
+  transition:opacity .4s}
+#toast.show{opacity:1}
+
+body.shot #logo,body.shot #topRight,body.shot #panel,body.shot #specimen,
+body.shot #panelBtn,body.shot #hint{display:none!important}
+
+/* ================================================================
+   [SEC:CSS-MOBILE] 手機版（疊加，不動桌面規則）
+   ================================================================ */
+@media (max-width:720px){
+  #specimen{left:12px;right:12px;bottom:12px;width:auto;padding:13px 15px}
+  #specLine{font-size:11.5px}
+  #chips{display:grid;grid-template-columns:repeat(3,1fr)}
+  .chip{font-size:10.5px;padding:6px 2px;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #panel{right:12px;left:auto;top:auto;bottom:150px;transform:none;width:min(250px,calc(100vw - 24px));
+    display:none;max-height:52svh;overflow-y:auto}
+  #panel.open{display:flex}
+  #panelBtn{display:block;bottom:auto;top:70px}
+  #hint{bottom:auto;top:64px}
+  #logo{top:12px;left:14px}
+  #wordmark{font-size:13px}
+  #topRight{top:12px;right:12px}
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- LOGO SLOT: 正式 LL 疊字視覺之後替換，容器 48×48 不動 -->
+<div id="logo">
+  <div id="llmark"><span class="ll">L</span><span class="ll ll2">L</span></div>
+  <div id="wordmark">LUMEN LENS<small data-i18n="subtitle">寶石透鏡</small></div>
+</div>
+
+<div id="topRight">
+  <button class="miniBtn" id="langBtn">EN</button>
+</div>
+
+<div id="panel" class="glass">
+  <div class="pTitle" data-i18n="lighttable">光桌</div>
+  <div class="sliderRow">
+    <label><span data-i18n="backlight">背光</span><span class="val" id="backlightVal">1.00</span></label>
+    <input type="range" id="backlight" min="0" max="1.5" step="0.01" value="1">
+  </div>
+  <hr>
+  <div class="pTitle" id="paramTitle" data-i18n="params">標本參數</div>
+  <div id="paramSliders" style="display:flex;flex-direction:column;gap:12px"></div>
+  <hr>
+  <label class="chkRow"><input type="checkbox" id="glassChk" checked><span data-i18n="glassfx">玻璃效果</span></label>
+  <button id="resetBtn" data-i18n="reset">視角回正</button>
+</div>
+<button class="miniBtn glass" id="panelBtn">☼</button>
+
+<div id="specimen" class="glass">
+  <div id="chips"></div>
+  <div id="specName"></div>
+  <div id="specEn"></div>
+  <div id="specMeta"></div>
+  <div id="specLine"></div>
+</div>
+
+<div id="hint" data-i18n="hint">拖曳旋轉 · 上下拖曳傾斜 · 滾輪縮放</div>
+<div id="debugHud"></div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+/* ================================================================
+   [SEC:HASH] 狀態直達 URL（自動驗證用）
+   #debug&slice=iris&tilt=25&spin=40&backlight=1.2&zoom=1.1&shot&auto
+   ================================================================ */
+const HASH=(()=>{const o={};location.hash.replace(/^#/,'').split('&').forEach(kv=>{
+  if(!kv)return;const i=kv.indexOf('=');
+  if(i<0)o[kv]=true;else o[kv.slice(0,i)]=decodeURIComponent(kv.slice(i+1));});return o;})();
+const DEBUG=!!HASH.debug, SHOT=!!HASH.shot;
+if(DEBUG)document.body.classList.add('debug');
+if(SHOT)document.body.classList.add('shot');
+
+/* ================================================================
+   [SEC:I18N] 中英雙語四件套（沿用前作方案）
+   加新 UI 文字一律走 tx() 或 I18N_STATIC，別寫死單語
+   ================================================================ */
+let UI_LANG=localStorage.getItem('lumenlens.lang')||((navigator.language||'zh').toLowerCase().indexOf('zh')===0?'zh':'en');
+if(HASH.lang==='en'||HASH.lang==='zh')UI_LANG=HASH.lang; /* 驗證直達 */
+const tx=(zh,en)=>UI_LANG==='zh'?zh:en;
+const I18N_STATIC={
+  subtitle:{zh:'寶石透鏡',en:'THE GEM LENS'},
+  lighttable:{zh:'光桌',en:'LIGHT TABLE'},
+  backlight:{zh:'背光',en:'Backlight'},
+  params:{zh:'標本參數',en:'SPECIMEN'},
+  glassfx:{zh:'玻璃效果',en:'Glass effect'},
+  reset:{zh:'視角回正',en:'Reset view'},
+  hint:{zh:'拖曳旋轉 · 上下拖曳傾斜 · 滾輪縮放',en:'Drag to spin · Vertical drag to tilt · Scroll to zoom'},
+};
+function applyStaticLang(){
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const k=el.getAttribute('data-i18n');if(I18N_STATIC[k])el.textContent=I18N_STATIC[k][UI_LANG];});
+  document.documentElement.lang=UI_LANG==='zh'?'zh-Hant':'en';
+  document.getElementById('langBtn').textContent=UI_LANG==='zh'?'EN':'中';
+}
+
+/* ================================================================
+   [SEC:SLICES] 標本資料（全部 UI 與材質由此驅動）
+   ================================================================ */
+const SLICES=[
+ { id:'trapiche',
+   name:'達碧茲祖母綠', nameEn:'Trapiche Emerald',
+   system:'六方晶系 · 哥倫比亞', systemEn:'Hexagonal · Colombia',
+   line:'結晶時六個生長扇區的邊界富集碳質包裹體，切片透光現六輻黑臂——不是星光，是生長的紀錄。',
+   lineEn:'Carbon-rich inclusions gather along six sector boundaries during growth; backlit, the slice shows six dark arms — not asterism, but a record of growth.',
+   define:'SLICE_TRAPICHE', glow:[0.20,0.75,0.42],
+   uniforms:{uArmWidth:.035,uArmDensity:2.6,uEnrich:0.8,uCoreDensity:2.2,uThickness:1.0},
+   sliders:[
+     {k:'uArmWidth', zh:'臂寬', en:'Arm width', min:.02,max:.16,step:.005},
+     {k:'uArmDensity',zh:'臂濃度',en:'Arm density',min:.4,max:4,step:.05},
+     {k:'uEnrich', zh:'邊界富集',en:'Boundary enrich',min:0,max:2.5,step:.05},
+     {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
+ { id:'liddicoatite',
+   name:'李迪克碧璽', nameEn:'Liddicoatite Tourmaline',
+   system:'三方晶系 · 馬達加斯加', systemEn:'Trigonal · Madagascar',
+   line:'垂直 c 軸切片：三重對稱的同心色帶像靶心三角，一圈色帶就是一段生長史的化學配方。',
+   lineEn:'Sliced across the c-axis: concentric three-fold colour bands form a triangular bullseye — each band is one chapter of growth chemistry.',
+   define:'SLICE_LIDDI', glow:[0.85,0.38,0.52],
+   uniforms:{uBandFreq:9.0,uSharp:.06,uTintShift:0,uRound:.12,uRayLine:.35,uThickness:1.0},
+   sliders:[
+     {k:'uBandFreq',zh:'色帶密度',en:'Band count',min:4,max:16,step:.5},
+     {k:'uSharp',zh:'帶邊銳利度',en:'Band sharpness',min:.01,max:.4,step:.01},
+     {k:'uTintShift',zh:'色系（粉↔綠）',en:'Tint (pink↔green)',min:-.5,max:1,step:.05},
+     {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
+ { id:'iris',
+   name:'彩虹瑪瑙', nameEn:'Iris Agate',
+   system:'隱晶質石英 · 帶間距≈光波長', systemEn:'Cryptocrystalline quartz · band spacing ≈ λ of light',
+   line:'瑪瑙紋帶細到接近光的波長，成了天然繞射光柵——只在背光下、傾到對的角度，彩虹才會現身。',
+   lineEn:'Agate banding fine enough to approach the wavelength of light acts as a natural diffraction grating — the rainbow only appears backlit, at just the right tilt.',
+   define:'SLICE_IRIS', glow:[0.62,0.68,0.85],
+   uniforms:{uBandDensity:110.0,uD0:1300.0,uDGrad:.9,uIrisGain:1.0,uThickness:.8},
+   sliders:[
+     {k:'uBandDensity',zh:'紋帶密度',en:'Band density',min:60,max:170,step:1},
+     {k:'uD0',zh:'繞射間距',en:'Grating pitch',min:900,max:2400,step:10},
+     {k:'uIrisGain',zh:'彩虹強度',en:'Iris gain',min:0,max:2,step:.05},
+     {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.3,max:1.6,step:.05}]},
+];
+
+/* ================================================================
+   [SEC:GLSL] Shader（單一模板 + defines 編三份）
+   ================================================================ */
+const VERT=`
+varying vec2 vUv; varying vec3 vWorldPos;
+void main(){ vUv=uv; vec4 wp=modelMatrix*vec4(position,1.0); vWorldPos=wp.xyz;
+  gl_Position=projectionMatrix*viewMatrix*wp; }`;
+
+const FRAG=`
+precision highp float;
+#define PI 3.14159265
+#define TAU 6.2831853
+varying vec2 vUv; varying vec3 vWorldPos;
+uniform float uBacklight,uThickness,uTilt,uTime;
+uniform mat3 uInvRot;
+uniform float uArmWidth,uArmDensity,uEnrich,uCoreDensity;
+uniform float uBandFreq,uSharp,uTintShift,uRound,uRayLine;
+uniform float uBandDensity,uD0,uDGrad,uIrisGain;
+
+float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
+float vnoise(vec2 q){vec2 i=floor(q),f=fract(q);f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 q){float a=.5,s=0.;for(int i=0;i<3;i++){s+=a*vnoise(q);q=q*2.03+vec2(17.3,9.1);a*=.5;}return s;}
+
+/* ---- 切片外形 SDF（<0 = 內部）---- */
+#ifdef SLICE_TRAPICHE
+float shapeSD(vec2 p){float th=atan(p.y,p.x);
+  float rr=0.96+0.02*cos(6.0*th)+0.012*fbm(p*2.5);return length(p)-rr;}
+#endif
+#ifdef SLICE_LIDDI
+float triD(vec2 p){float th=atan(p.y,p.x);
+  return length(p)*cos(mod(th-PI/2.0,TAU/3.0)-PI/3.0)*2.0;}
+float hexD(vec2 p){vec2 e2=vec2(0.5,0.8660),e3=vec2(-0.5,0.8660);
+  return max(abs(p.x),max(abs(dot(p,e2)),abs(dot(p,e3))));}
+/* 外形=六方晶癖輪廓（錨點照：色帶三角形但切片輪廓近六角）*/
+float shapeSD(vec2 p){return mix(hexD(p),length(p),0.3)+0.03*fbm(p*3.1+vec2(4.4,1.9))-0.90;}
+#endif
+#ifdef SLICE_IRIS
+float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.22);
+  return length(q)*(1.0+0.10*fbm(q*1.8+vec2(3.1,7.2)))-0.95;}
+#endif
+
+/* ---- 光譜近似：三峰 Gaussian，λ 出可見光自動熄滅 ---- */
+vec3 spectral(float l){
+  float R=exp(-(l-600.0)*(l-600.0)/7200.0)+0.28*exp(-(l-430.0)*(l-430.0)/1250.0);
+  float G=exp(-(l-540.0)*(l-540.0)/5000.0);
+  float B=exp(-(l-455.0)*(l-455.0)/3200.0);
+  return vec3(R,G,B);}
+
+#ifdef SLICE_LIDDI
+/* 錨點照色序：粉/乳白/黃綠/淡粉/乳白/橄欖/琥珀/粉 */
+vec3 bandCol(float i){
+  float k=mod(i,8.0);vec3 c;
+  if(k<1.0)c=vec3(0.87,0.32,0.52);
+  else if(k<2.0)c=vec3(0.94,0.87,0.74);
+  else if(k<3.0)c=vec3(0.58,0.66,0.34);
+  else if(k<4.0)c=vec3(0.90,0.62,0.68);
+  else if(k<5.0)c=vec3(0.94,0.90,0.78);
+  else if(k<6.0)c=vec3(0.52,0.60,0.28);
+  else if(k<7.0)c=vec3(0.78,0.62,0.28);
+  else c=vec3(0.88,0.48,0.60);
+  float t=clamp(uTintShift,0.0,1.0);
+  c=mix(c,c.grb,t);                       /* 往綠系 */
+  c=mix(c,vec3(c.r,c.g*0.65,c.b*0.9),clamp(-uTintShift,0.0,1.0)*0.8); /* 往粉系 */
+  return c;}
+#endif
+
+void main(){
+  vec2 p=(vUv-0.5)*2.2;
+  float sd=shapeSD(p);
+  if(sd>0.0)discard;
+  vec3 vW=normalize(cameraPosition-vWorldPos);
+  vec3 vL=uInvRot*vW;
+  float cosT=max(cos(uTilt),0.35);
+  float pathLen=uThickness/cosT;
+  float profile=0.78+0.22*exp(-dot(p,p)*0.5);
+  float r=length(p);
+  float th=atan(p.y,p.x);
+  vec3 T=vec3(0.0); vec3 irisAdd=vec3(0.0);
+
+#ifdef SLICE_PLAIN
+  T=exp(-vec3(1.2,0.9,0.5)*pathLen);
+#endif
+
+#ifdef SLICE_TRAPICHE
+  /* 六重角向扇區：臂=吸收體 */
+  float a=mod(th,PI/3.0);
+  float dAng=abs(a-PI/6.0);
+  float s=dAng*max(r,0.001);
+  float w=uArmWidth*(0.35+0.65*r);
+  float g1=fbm(vec2(th*3.2,r*6.0));           /* 沿臂羽化（輕）*/
+  float arm=1.0-smoothstep(w*(0.85+0.3*g1),w+0.03,s);
+  vec2 e2=vec2(0.5,0.8660),e3=vec2(-0.5,0.8660);
+  float dHex=max(abs(p.x),max(abs(dot(p,e2)),abs(dot(p,e3))));
+  float core=1.0-smoothstep(0.07,0.11,dHex);  /* 收束的小六角核（錨點）*/
+  float enrich=(1.0-smoothstep(0.0,0.02,abs(s-w)))*smoothstep(0.10,0.35,r);
+  float grain=fbm(p*18.0);
+  float growth=1.0+0.06*sin(r*42.0+3.0*fbm(p*4.0));
+  /* 秘密花園：內裂/包裹體霧狀域 + 扇區明暗差（錨點 trapiche_3）*/
+  float garden=smoothstep(0.45,0.78,fbm(p*6.5+vec2(2.2,5.5)))*0.55;
+  float sec=floor(mod(th+PI,TAU)/(PI/3.0));
+  float secVar=0.88+0.24*hash(vec2(sec,3.7));
+  float armStuff=arm*uArmDensity*(0.6+0.4*grain)+enrich*uEnrich*1.6+core*uCoreDensity;
+  vec3 sigBody=vec3(2.5,0.42,1.9);            /* 濃郁祖母綠（吸紅藍透綠）*/
+  vec3 sigArm=vec3(0.9,0.95,1.05);
+  T=exp(-(sigBody*(0.80*growth*secVar+garden)+sigArm*armStuff)*pathLen);
+#endif
+
+#ifdef SLICE_LIDDI
+  /* 三重對稱同心色帶（帶座標 d^0.72：外圈帶寬、內圈帶密，照錨點）*/
+  float d=mix(triD(p),r*1.15,uRound);
+  float t=pow(max(d,1e-4),0.72)*uBandFreq;
+  t+=0.35*sin(t*1.7+1.3)+0.15*sin(t*4.3+0.7);
+  float cell=floor(t);float f=fract(t);
+  vec3 col0=bandCol(cell),col1=bandCol(cell+1.0);
+  vec3 bcol=mix(col0,col1,smoothstep(1.0-uSharp,1.0,f));
+  /* 外圈寬橄欖綠區（錨點特徵）*/
+  bcol=mix(bcol,vec3(0.60,0.58,0.22),smoothstep(0.82,0.96,d));
+  /* 靶心三角 + 乳白細帶 */
+  float bull=1.0-smoothstep(0.10,0.14,d);
+  float ring=smoothstep(0.13,0.15,d)*(1.0-smoothstep(0.17,0.19,d));
+  bcol=mix(bcol,vec3(0.72,0.16,0.38),bull);
+  bcol=mix(bcol,vec3(0.96,0.92,0.84),ring);
+  /* 三重放射線＝亮粉 Mercedes 星線（錨點：粉色不是暗線），只到中段 */
+  float la=abs(mod(th-PI/2.0,TAU/3.0)-PI/3.0);
+  float rayline=(1.0-smoothstep(0.008,0.028,la*r))*uRayLine*3.0
+    *smoothstep(0.05,0.12,d)*(1.0-smoothstep(0.50,0.75,d));
+  bcol=mix(bcol,vec3(0.90,0.28,0.55),clamp(rayline,0.0,1.0));
+  vec3 sigma=vec3(0.18)+2.6*(vec3(1.0)-bcol);
+  /* 羽狀包裹體 + 外殼暗紋（錨點：黑色薄殼）*/
+  float dens=0.9+0.12*fbm(p*9.0)
+    +0.35*smoothstep(0.55,0.85,fbm(p*7.0+vec2(8.1,3.3)))
+    +smoothstep(-0.06,-0.005,sd)*2.5;
+  T=exp(-sigma*dens*pathLen);
+#endif
+
+#ifdef SLICE_IRIS
+  /* 噪聲扭曲細帶 + 光柵繞射近似 */
+  vec2 q=p*vec2(1.0,1.22);
+  float rb=length(q);
+  float n3=fbm(q*3.0);
+  float n5=fbm(q*5.0);
+  float sB=rb+0.10*n3+0.02*fbm(q*11.0);
+  /* 帶振幅由內向外長出：中心=玉髓核（少帶、霧狀），外圈=細密紋帶（錨點 iris_5）*/
+  float bandAmp=smoothstep(0.12,0.35,rb);
+  float band=(0.5+0.5*sin(TAU*sB*uBandDensity))*bandAmp;
+  float dens=1.05+0.45*n5+0.50*band
+    +(1.0-bandAmp)*0.55*fbm(q*8.0+vec2(1.7,6.3)); /* 核心霧斑 */
+  vec3 sigIris=vec3(0.34,0.30,0.26);            /* 乳白偏冷的玉髓透光 */
+  /* 琥珀色外殼（錨點：金黃 crust 包邊）*/
+  float crust=smoothstep(-0.14,-0.01,sd);
+  sigIris=mix(sigIris,vec3(0.42,1.05,2.30),crust*0.8);
+  T=exp(-sigIris*dens*pathLen);
+  /* 帶法向（sB 梯度近似；重用 n3/n5 省 fbm）*/
+  vec2 gdir=normalize(q+0.35*vec2(n3-0.5,fbm(q*3.0+vec2(9.2,7.7))-0.5)+vec2(1e-4));
+  float sv=dot(gdir,vL.xy);
+  float dEff=uD0*(1.0+uDGrad*(rb-0.5)+0.15*(n5-0.5));
+  float lam=dEff*abs(sv);
+  vec3 spec=spectral(lam)+0.30*spectral(lam*0.5);
+  /* 防油膜感收斂：微去飽和 + 只在紋帶區 + 半徑窗 */
+  spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),0.18);
+  float gate=smoothstep(0.12,0.30,rb)*(1.0-smoothstep(0.86,1.0,rb));
+  irisAdd=spec*band*gate*uIrisGain*uBacklight*1.5;
+#endif
+
+  vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
+  col+=irisAdd;
+  /* 無背光也看得到的微弱表面 sheen */
+  float fres=pow(1.0-abs(vL.z),3.0);
+  col+=(0.014+0.09*fres)*vec3(0.55,0.65,0.80);
+  col+=T*0.04;
+  /* 磨邊亮線（假厚度）*/
+  float rim=smoothstep(0.05,0.008,-sd);
+  col+=rim*(0.04+0.28*uBacklight)*vec3(0.85,0.92,1.0)*0.55;
+  col=col/(1.0+col);
+  col=pow(col,vec3(0.4545));
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+/* 光桌 shader：圓形柔光 disc + 大範圍微光 + 微塵 */
+const TABLE_FRAG=`
+precision highp float;
+varying vec2 vUv;
+uniform float uBacklight,uTime;
+uniform vec3 uGlowColor;
+float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
+float vnoise(vec2 q){vec2 i=floor(q),f=fract(q);f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}
+void main(){
+  vec2 p=(vUv-0.5)*30.0;
+  float r=length(p);
+  /* 中心熱、快速黑掉：tonemap+gamma 會把微小線性值放大成霧，尾巴必須壓到 <0.01 */
+  float disc=3.2*exp(-r*r*2.2);
+  float halo=0.06*exp(-r*0.9);
+  float dust=vnoise(p*2.4)*0.05;
+  vec3 base=mix(vec3(0.90,0.95,1.0),uGlowColor,0.12);
+  vec3 col=(disc+halo)*(0.92+dust)*uBacklight*base;
+  col=col/(1.0+col);
+  col=pow(col,vec3(0.4545));
+  col+=(hash(gl_FragCoord.xy)-0.5)*0.008; /* dither 破 8-bit banding */
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+/* 光暈 quad：additive，溢出到玻璃面板底下 */
+const GLOW_FRAG=`
+precision highp float;
+varying vec2 vUv;
+uniform vec3 uGlowColor;
+uniform float uGlow;
+float ghash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
+void main(){
+  vec2 p=(vUv-0.5)*2.0;
+  float r=length(p);
+  float a=exp(-r*r*7.0);
+  a*=1.0+(ghash(gl_FragCoord.xy)-0.5)*0.25; /* dither 乘法縮放：a≈0 處不能加出灰邊 */
+  gl_FragColor=vec4(uGlowColor*max(a,0.0)*uGlow,1.0);
+}`;
+
+/* ================================================================
+   [SEC:SCENE] Three.js 場景（光桌 / 切片 / 光暈，draw call ≤4）
+   ================================================================ */
+const canvas=document.getElementById('gl');
+/* maxframes（headless 截圖）也要 preserve，否則 rAF 停止後 buffer 被 compositor 丟棄變黑畫面 */
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,preserveDrawingBuffer:SHOT||!!HASH.maxframes});
+renderer.setClearColor(0x050508);
+let PXR=Math.min(window.devicePixelRatio||1,2);
+renderer.setPixelRatio(PXR);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(35,1,0.1,50);
+const CAM_BASE=new THREE.Vector3(0,-0.78,3.5);
+
+function makeCommonUniforms(){return{
+  uBacklight:{value:1},uThickness:{value:1},uTilt:{value:0},uTime:{value:0},
+  uInvRot:{value:new THREE.Matrix3()}};}
+
+const tableUniforms={uBacklight:{value:1},uTime:{value:0},uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)}};
+const table=new THREE.Mesh(new THREE.PlaneGeometry(30,30),
+  new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:TABLE_FRAG,uniforms:tableUniforms}));
+/* z=-0.8：切片傾斜 ±40° 時 z 最低到 -0.71，要留在光桌前面（踩過：-0.05 會把下半片深度裁掉）*/
+table.position.z=-0.8;table.renderOrder=0;scene.add(table);
+
+const glowUniforms={uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)},uGlow:{value:0.5}};
+/* transparent:false 是刻意的（踩過）：transparent 材質會被排進透明 pass、畫在所有不透明物之後，
+   光暈會蓋在切片上洗白；走不透明 pass 的 additive 才吃 renderOrder，讓切片蓋回光暈中心 */
+const glow=new THREE.Mesh(new THREE.PlaneGeometry(5,5),
+  new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:GLOW_FRAG,uniforms:glowUniforms,
+    blending:THREE.AdditiveBlending,transparent:false,depthWrite:false,depthTest:false}));
+/* 光暈畫在切片之前（renderOrder 1 < 切片 2）：不透明切片蓋掉中心 → 只剩邊緣 halo 溢出 */
+glow.position.z=0.30;glow.renderOrder=1;scene.add(glow);
+
+/* 三份切片材質：啟動全預編譯 */
+const sliceMats={};
+SLICES.forEach(s=>{
+  const u=makeCommonUniforms();
+  for(const k in s.uniforms)u[k]={value:s.uniforms[k]};
+  const defs={};defs[s.define]=1;
+  sliceMats[s.id]=new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:FRAG,
+    uniforms:u,defines:defs,side:THREE.DoubleSide});
+});
+const slice=new THREE.Mesh(new THREE.PlaneGeometry(2.2,2.2),sliceMats[SLICES[0].id]);
+slice.renderOrder=2;scene.add(slice);
+
+/* 預編譯（避免切換卡頓）；編完必須還原當前選片的材質（踩過：忘還原=永遠畫最後一份） */
+function precompile(){
+  SLICES.forEach(s=>{slice.material=sliceMats[s.id];renderer.compile(scene,camera);});
+  slice.material=sliceMats[state.sliceId];
+}
+
+/* ================================================================
+   [SEC:STATE] 互動狀態（目標值 + lerp 慣性）
+   ================================================================ */
+const D2R=Math.PI/180;
+const state={
+  sliceId:SLICES[0].id,
+  spin:0,spinT:0,
+  tilt:0,tiltT:0,          /* 弧度，clamp ±40° */
+  zoom:1,zoomT:1,          /* 0.6–1.8 */
+  backlight:1,
+};
+const TILT_MAX=40*D2R;
+function resetView(){state.spinT=0;state.tiltT=0;state.zoomT=1;}
+
+/* hash 直達狀態 */
+if(HASH.slice&&SLICES.some(s=>s.id===HASH.slice))state.sliceId=HASH.slice;
+if(HASH.tilt!==undefined){state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,parseFloat(HASH.tilt)*D2R));state.tilt=state.tiltT;}
+if(HASH.spin!==undefined){state.spinT=parseFloat(HASH.spin)*D2R;state.spin=state.spinT;}
+if(HASH.zoom!==undefined){state.zoomT=parseFloat(HASH.zoom);state.zoom=state.zoomT;}
+if(HASH.backlight!==undefined)state.backlight=Math.max(0,Math.min(1.5,parseFloat(HASH.backlight)));
+
+/* ================================================================
+   [SEC:INPUT] 拖曳轉切片（相機固定）：水平=自旋 垂直=傾斜 pinch=縮放
+   ================================================================ */
+const pts=new Map();let pinchD=0;let interacted=false;
+canvas.addEventListener('pointerdown',e=>{
+  canvas.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===2){const a=[...pts.values()];pinchD=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);}
+  canvas.classList.add('grabbing');
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!pts.has(e.pointerId))return;
+  const prev=pts.get(e.pointerId);
+  const dx=e.clientX-prev.x,dy=e.clientY-prev.y;
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===1){
+    state.spinT+=dx*0.011;
+    state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,state.tiltT+dy*0.008));
+    if(!interacted){interacted=true;document.getElementById('hint').classList.add('gone');}
+  }else if(pts.size===2){
+    const a=[...pts.values()];const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
+    if(pinchD>0)state.zoomT=Math.max(0.6,Math.min(1.8,state.zoomT*(d/pinchD)));
+    pinchD=d;
+  }
+});
+function endPt(e){pts.delete(e.pointerId);if(pts.size<2)pinchD=0;if(!pts.size)canvas.classList.remove('grabbing');}
+canvas.addEventListener('pointerup',endPt);
+canvas.addEventListener('pointercancel',endPt);
+canvas.addEventListener('dblclick',resetView);
+canvas.addEventListener('wheel',e=>{e.preventDefault();
+  state.zoomT=Math.max(0.6,Math.min(1.8,state.zoomT*(e.deltaY<0?1.07:0.93)));},{passive:false});
+
+/* ================================================================
+   [SEC:UI] 面板 / 標本卡 / 切換（SLICES 驅動）
+   ================================================================ */
+const $=id=>document.getElementById(id);
+function curSlice(){return SLICES.find(s=>s.id===state.sliceId);}
+
+function buildChips(){
+  $('chips').innerHTML='';
+  SLICES.forEach(s=>{
+    const b=document.createElement('button');b.className='chip'+(s.id===state.sliceId?' on':'');
+    b.textContent=tx(s.name,s.nameEn);
+    b.onclick=()=>setSlice(s.id);
+    $('chips').appendChild(b);});
+}
+function renderSpecimen(){
+  const s=curSlice();
+  $('specName').textContent=tx(s.name,s.nameEn);
+  $('specEn').textContent=UI_LANG==='zh'?s.nameEn:s.name;
+  $('specMeta').textContent=tx(s.system,s.systemEn);
+  $('specLine').textContent=tx(s.line,s.lineEn);
+  buildChips();
+}
+function buildSliders(){
+  const s=curSlice();const box=$('paramSliders');box.innerHTML='';
+  s.sliders.forEach(sl=>{
+    const row=document.createElement('div');row.className='sliderRow';
+    const lab=document.createElement('label');
+    const nm=document.createElement('span');nm.textContent=tx(sl.zh,sl.en);
+    const val=document.createElement('span');val.className='val';
+    lab.appendChild(nm);lab.appendChild(val);
+    const inp=document.createElement('input');inp.type='range';
+    inp.min=sl.min;inp.max=sl.max;inp.step=sl.step;
+    inp.value=sliceMats[s.id].uniforms[sl.k].value;
+    val.textContent=(+inp.value).toFixed(2);
+    inp.oninput=()=>{sliceMats[s.id].uniforms[sl.k].value=+inp.value;val.textContent=(+inp.value).toFixed(2);};
+    row.appendChild(lab);row.appendChild(inp);box.appendChild(row);});
+}
+function setSlice(id){
+  state.sliceId=id;slice.material=sliceMats[id];
+  renderSpecimen();buildSliders();
+}
+$('backlight').addEventListener('input',e=>{
+  state.backlight=+e.target.value;
+  $('backlightVal').textContent=state.backlight.toFixed(2);});
+$('backlight').value=state.backlight;
+$('backlightVal').textContent=state.backlight.toFixed(2);
+$('resetBtn').onclick=resetView;
+$('langBtn').onclick=()=>{
+  UI_LANG=UI_LANG==='zh'?'en':'zh';localStorage.setItem('lumenlens.lang',UI_LANG);
+  applyStaticLang();renderSpecimen();buildSliders();};
+$('panelBtn').onclick=()=>$('panel').classList.toggle('open');
+
+/* ================================================================
+   [SEC:GLASS] 玻璃降級三段（supports 偵測 / fps 哨兵 / 手動）
+   ================================================================ */
+const glassSupported=CSS.supports('backdrop-filter','blur(1px)')||CSS.supports('-webkit-backdrop-filter','blur(1px)');
+let glassOn=localStorage.getItem('lumenlens.glass');
+glassOn=glassOn===null?glassSupported:glassOn==='1';
+function applyGlass(){
+  document.body.classList.toggle('no-glass',!glassOn);
+  $('glassChk').checked=glassOn;}
+$('glassChk').onchange=()=>{glassOn=$('glassChk').checked;
+  localStorage.setItem('lumenlens.glass',glassOn?'1':'0');applyGlass();};
+applyGlass();
+let toastTimer=0;
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),3200);}
+
+/* ================================================================
+   [SEC:FPS] fps 哨兵 + #debug overlay
+   ================================================================ */
+let frames=0,fpsAvg=60,lastSec=performance.now(),lowSecs=0,degradeStep=0,lastLog=0;
+function fpsTick(now){
+  frames++;
+  if(now-lastSec>=1000){
+    fpsAvg=fpsAvg*0.5+frames*0.5*(1000/(now-lastSec));
+    frames=0;lastSec=now;
+    if(fpsAvg<45)lowSecs++;else lowSecs=0;
+    /* #debug/#shot 下不自動降級：headless 誤觸發會污染驗證截圖；錄屏不能入鏡 toast */
+    if(lowSecs>=3&&!DEBUG&&!SHOT){
+      lowSecs=0;
+      if(degradeStep===0&&glassOn){degradeStep=1;glassOn=false;applyGlass();
+        toast(tx('效能偏低，已自動關閉玻璃效果（面板可重開）','Low fps — glass effect disabled (re-enable in panel)'));}
+      else if(degradeStep<=1&&PXR>1.5){degradeStep=2;PXR=1.5;renderer.setPixelRatio(PXR);onResize();}
+    }
+    if(DEBUG){
+      $('debugHud').textContent='fps '+fpsAvg.toFixed(1)+'\npxr '+PXR.toFixed(2)
+        +'\nglass '+(glassOn?'on':'off')+'\ntilt '+(state.tilt/D2R).toFixed(1)+'° spin '+(state.spin/D2R).toFixed(0)+'°'
+        +'\nslice '+state.sliceId;
+      if(now-lastLog>5000){lastLog=now;console.log('[fps]',fpsAvg.toFixed(1));}
+    }
+  }
+}
+
+/* ================================================================
+   [SEC:GLOWCOLOR] 光暈顏色（Iris 傾斜時跟著光譜跑 → 染玻璃 UI）
+   ================================================================ */
+function spectralJS(l){
+  const g=(x,m,s2)=>Math.exp(-(x-m)*(x-m)/s2);
+  return [g(l,600,7200)+0.28*g(l,430,1250),g(l,540,5000),g(l,455,3200)];}
+const REST_ANGLE=Math.atan(0.78/3.5); /* 相機微俯視的基礎視角（跟 CAM_BASE 連動）*/
+const _glowCol=new THREE.Color();
+function updateGlowColor(){
+  const s=curSlice();
+  let c=s.glow.slice();
+  if(s.id==='iris'){
+    /* 與 shader 一致：有效視角 ≈ tilt − REST_ANGLE（正傾先抵銷相機俯角）*/
+  const sv=Math.abs(Math.sin(state.tilt-REST_ANGLE));
+    const d0=sliceMats.iris.uniforms.uD0.value;
+    const sp=spectralJS(d0*sv*0.72);
+    const amt=Math.min(1,(sp[0]+sp[1]+sp[2]));
+    c=[c[0]*(1-amt)+sp[0]*amt,c[1]*(1-amt)+sp[1]*amt,c[2]*(1-amt)+sp[2]*amt];
+  }
+  _glowCol.setRGB(c[0],c[1],c[2]);
+  glowUniforms.uGlowColor.value.lerp(_glowCol,0.08);
+  tableUniforms.uGlowColor.value.lerp(_glowCol,0.08);
+}
+
+/* ================================================================
+   [SEC:MODES] P1/P2 擴充骨架（P0 只有 lightTable 一個模式）
+   P1 星石手電筒 = 在此註冊新模式；P2 = octahedron.html 獨立頁
+   ================================================================ */
+const MODES=[{id:'lightTable',update(dt){}}];
+
+/* ================================================================
+   [SEC:LOOP] 主迴圈
+   ================================================================ */
+const _q1=new THREE.Quaternion(),_q2=new THREE.Quaternion(),_m4=new THREE.Matrix4();
+const AXIS_X=new THREE.Vector3(1,0,0),AXIS_Z=new THREE.Vector3(0,0,1);
+let _vw=0,_vh=0,_fitK=1;
+function onResize(){
+  const w=window.innerWidth,h=window.innerHeight;
+  if(!w||!h)return;
+  _vw=w;_vh=h;
+  /* setSize 要讓它更新 canvas style（踩過）：canvas 是 replaced element，inset:0 拉不動，
+     不更新 style 時 DPR>1 的裝置 canvas 會是視口的 DPR 倍大、場景中心跑出畫面 */
+  renderer.setSize(w,h);
+  camera.aspect=w/h;camera.updateProjectionMatrix();
+  /* 直向構圖：鏡頭退遠到水平半視野 ≥1.18 世界單位（切片半徑1.05+餘裕），精確幾何解 */
+  const halfW=CAM_BASE.length()*Math.tan(camera.fov*Math.PI/360)*camera.aspect;
+  _fitK=Math.max(1,Math.min(2.8,1.35/halfW));
+}
+window.addEventListener('resize',onResize);
+onResize();
+
+let lastT=performance.now();let _frameN=0;
+function animate(now){
+  /* #maxframes=N：跑 N 幀後停 rAF（headless 截圖用；SwiftShader 下 rAF 連跑會拖爆逾時）*/
+  if(!(HASH.maxframes&&++_frameN>+HASH.maxframes))requestAnimationFrame(animate);
+  const dt=Math.min(0.05,(now-lastT)/1000);lastT=now;
+  /* 嵌入式環境（Browser pane / in-app WebView）視口可能延遲就位或不發 resize：每幀比對 */
+  if(window.innerWidth!==_vw||window.innerHeight!==_vh)onResize();
+  /* 慣性 lerp */
+  const L=1-Math.pow(1-0.12,dt*60);
+  state.spin+=(state.spinT-state.spin)*L;
+  state.tilt+=(state.tiltT-state.tilt)*L;
+  state.zoom+=(state.zoomT-state.zoom)*L;
+  /* 自動演示（#auto 錄屏用）：傾角正弦掃 */
+  if(HASH.auto){state.tiltT=Math.sin(now*0.00045)*28*D2R;state.spinT+=dt*0.15;}
+  /* 切片姿態：tilt 繞世界 X，spin 繞局部 Z */
+  _q1.setFromAxisAngle(AXIS_X,state.tilt);
+  _q2.setFromAxisAngle(AXIS_Z,state.spin);
+  slice.quaternion.copy(_q1).multiply(_q2);
+  /* 相機（固定方向，zoom = dolly）*/
+  camera.position.copy(CAM_BASE).multiplyScalar(_fitK/state.zoom);
+  camera.lookAt(0,0,0);
+  /* uniforms */
+  const mat=slice.material;
+  _m4.makeRotationFromQuaternion(_q1.copy(slice.quaternion).invert());
+  mat.uniforms.uInvRot.value.setFromMatrix4(_m4);
+  mat.uniforms.uTilt.value=state.tilt;
+  mat.uniforms.uBacklight.value=state.backlight;
+  mat.uniforms.uTime.value=now*0.001;
+  tableUniforms.uBacklight.value=state.backlight;
+  tableUniforms.uTime.value=now*0.001;
+  glowUniforms.uGlow.value=0.40*state.backlight+0.05;
+  updateGlowColor();
+  glow.quaternion.copy(camera.quaternion);
+  fpsTick(now);
+  renderer.render(scene,camera);
+}
+
+/* ================================================================
+   [SEC:BOOT] 啟動
+   ================================================================ */
+applyStaticLang();
+setSlice(state.sliceId);
+precompile();
+requestAnimationFrame(animate);
+/* #debug 診斷鉤子：Claude Code 自動驗證用（同步 render + readPixels，不依賴 rAF）*/
+if(DEBUG)window.__ll={renderer,scene,camera,slice,sliceMats,state,glowUniforms,tableUniforms,
+  frame(){animate(performance.now());},
+  probe(pts){ /* pts=[[x01,y01],...] 相對viewport 0..1，回傳 RGBA */
+    this.frame();
+    const gl=renderer.getContext(),w=gl.drawingBufferWidth,h=gl.drawingBufferHeight,out=[];
+    const buf=new Uint8Array(4);
+    for(const[x,y]of pts){gl.readPixels(Math.floor(x*w),Math.floor((1-y)*h),1,1,gl.RGBA,gl.UNSIGNED_BYTE,buf);out.push([...buf]);}
+    return out;}};
+</script>
+</body>
+</html>

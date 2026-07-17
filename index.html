@@ -158,6 +158,7 @@ body.shot #panelBtn,body.shot #hint{display:none!important}
     <input type="range" id="frontlight" min="0" max="1.5" step="0.01" value="0.6">
   </div>
   <label class="chkRow" id="keyFollowRow"><input type="checkbox" id="keyFollowChk" checked><span data-i18n="keyfollow">前光跟隨視角</span></label>
+  <label class="chkRow" id="flashRow"><input type="checkbox" id="flashChk"><span data-i18n="flashlight">手電筒模式（游標＝光）</span></label>
   <hr>
   <div class="pTitle" id="paramTitle" data-i18n="params">標本參數</div>
   <div id="paramSliders" style="display:flex;flex-direction:column;gap:12px"></div>
@@ -208,6 +209,7 @@ const I18N_STATIC={
   backlight:{zh:'背光',en:'Backlight'},
   frontlight:{zh:'前光',en:'Key light'},
   keyfollow:{zh:'前光跟隨視角',en:'Key light follows view'},
+  flashlight:{zh:'手電筒模式（游標＝光）',en:'Flashlight (cursor = light)'},
   params:{zh:'標本參數',en:'SPECIMEN'},
   glassfx:{zh:'玻璃效果',en:'Glass effect'},
   reset:{zh:'視角回正',en:'Reset view'},
@@ -237,6 +239,20 @@ const SLICES=[
      {k:'uArmWidth', zh:'臂寬', en:'Arm width', min:.02,max:.16,step:.005},
      {k:'uArmDensity',zh:'臂濃度',en:'Arm density',min:.4,max:4,step:.05},
      {k:'uEnrich', zh:'邊界富集',en:'Boundary enrich',min:0,max:2.5,step:.05},
+     {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
+ { id:'star',
+   name:'星光藍寶石', nameEn:'Star Sapphire',
+   system:'三方晶系 · 斯里蘭卡', systemEn:'Trigonal · Sri Lanka',
+   line:'三組金紅石絲互成六十度、皆垂直 c 軸——單點光下三條亮帶交會成六芒星，星心永遠追著光跑。',
+   lineEn:'Three sets of rutile silk, 60° apart and all perpendicular to the c-axis — under a point light three bands cross into a six-rayed star that follows the light.',
+   define:'SLICE_STAR', glow:[0.45,0.60,0.95], dome:true,
+   uniforms:{uMilk:1.0,uZoneAmt:0.6,uStarInt:0.9,uStarTint:0,uStarSharp:1.0,uThickness:1.2},
+   sliders:[
+     {k:'uMilk', zh:'乳霧濃度', en:'Milkiness', min:.3,max:2,step:.05},
+     {k:'uZoneAmt',zh:'六方色帶',en:'Hex zoning',min:0,max:1.5,step:.05},
+     {k:'uStarInt',zh:'星光強度',en:'Star intensity',min:0,max:1.5,step:.05},
+     {k:'uStarTint',zh:'色系（藍→紫→紅→黑）',en:'Hue (blue→red→black)',min:0,max:1,step:.01},
+     {k:'uStarSharp',zh:'星線銳利度',en:'Ray sharpness',min:.4,max:2.2,step:.05},
      {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
  { id:'liddicoatite',
    name:'李迪克碧璽', nameEn:'Liddicoatite Tourmaline',
@@ -284,6 +300,7 @@ uniform float uBandFreq,uSharp,uTintShift,uRound,uRayLine;
 uniform float uBandDensity,uD0,uDGrad,uIrisGain;
 uniform float uIor,uDisp,uDispStr,uDomeH,uFrontLight;
 uniform float uCatEye,uCrackAmt,uCrackSpread,uCoreSize;
+uniform float uMilk,uZoneAmt,uStarInt,uStarTint,uStarSharp;
 uniform vec3 uGlowColor3,uKeyDir;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -307,6 +324,11 @@ float shapeSD(vec2 p){return mix(hexD(p),length(p),0.3)+0.03*fbm(p*3.1+vec2(4.4,
 #ifdef SLICE_IRIS
 float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.22);
   return length(q)*(1.0+0.10*fbm(q*1.8+vec2(3.1,7.2)))-0.95;}
+#endif
+#ifdef SLICE_STAR
+/* 近圓微橢的蛋面輪廓（錨點 star_1「偏圓」）*/
+float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.07);
+  return length(q)*(1.0+0.025*fbm(q*2.1+vec2(5.2,1.3)))-0.95;}
 #endif
 
 /* ---- 光譜近似：三峰 Gaussian，λ 出可見光自動熄滅 ---- */
@@ -436,6 +458,23 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
   spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),0.18);
   float gate=smoothstep(0.12,0.30,rb)*(1.0-smoothstep(0.86,1.0,rb));
   irisAdd=spec*band*gate*uIrisGain*uBacklight*1.5;
+#endif
+
+#ifdef SLICE_STAR
+  /* 乳藍剛玉：絲光霧體（三組針的集體散射＝乳霧）＋六方環帶 zoning（錨點 star_3 邊緣色帶）*/
+  vec2 e2z=vec2(0.5,0.8660),e3z=vec2(-0.5,0.8660);
+  float dHexZ=max(abs(p.x),max(abs(dot(p,e2z)),abs(dot(p,e3z))));
+  float zone=0.5+0.5*sin(dHexZ*30.0+2.2*fbm(p*3.1));
+  float dens=uMilk*(0.85+0.30*fbm(p*6.3))
+    +uZoneAmt*0.5*zone*smoothstep(0.30,0.85,dHexZ);
+  /* 剛玉色系滑桿：0 藍寶 → 0.34 紫色藍寶 → 0.67 星光紅寶 → 1 黑星藍寶（吸收全頻）*/
+  vec3 sigStar;
+  {
+    vec3 cB=vec3(1.55,0.85,0.30),cP=vec3(1.05,1.45,0.55),cR=vec3(0.30,1.65,1.45),cK=vec3(2.2,2.1,2.0);
+    float tt=clamp(uStarTint,0.0,1.0);
+    sigStar=tt<0.34?mix(cB,cP,tt/0.34):(tt<0.67?mix(cP,cR,(tt-0.34)/0.33):mix(cR,cK,(tt-0.67)/0.33));
+  }
+  T=exp(-sigStar*dens*pathLen);
 #endif
 
   vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
@@ -607,6 +646,26 @@ void main(){
   /* 邊緣濕亮線（用戶紅箭頭）：拋光腰稜貼著輪廓的細高光弧，背光越強越亮；
      不吃 grooveAO——拋光面連續，亮線越過臂端（錨點照如此）*/
   col+=pow(1.0-ndi,14.0)*(0.30+0.80*uBacklight)*1.25*vec3(0.85,1.0,0.92);
+#ifdef SLICE_STAR
+  /* [星光] epi-asterism（星石科研報告 §5）：三組金紅石針互成 60°、⊥c、鎖晶體
+     （局部座標常數方向＝自旋時星臂跟轉）。u＝法線對半程向量的偏移（反射點 u=0，
+     光動星動、傾斜星平移）；帶 k＝⊥fk 的窄條過星心，三帶交會＝六芒星。
+     反射光路：強度綁前光×星光滑桿——與達碧茲透射貓眼光路相反，錨點照說了算 */
+  vec3 uS=nl-H*dot(nl,H);
+  float star=0.0;
+  float Ks=1600.0*uStarSharp*uStarSharp;       /* 星線銳利度滑桿：1=預設（用戶已認可的粗細）*/
+  for(int k=0;k<3;k++){
+    float phk=float(k)*(PI/3.0);
+    float uk=dot(uS.xy,vec2(cos(phk),sin(phk)));
+    star+=exp(-uk*uk*Ks);
+  }
+  float taperS=exp(-dot(uS,uS)*7.0);           /* 星臂向外漸細漸淡（錨點 star_1）*/
+  float silkS=0.82+0.18*vnoise(vPos.xy*34.0);
+  float coreS=exp(-dot(uS,uS)*90.0)*0.8;       /* 星心乳暈 */
+  /* 黑星端星線轉古銅金：黑星藍寶的絲是赤鐵礦/鈦鐵礦不是金紅石，星線偏金（礦物學正確）*/
+  vec3 rayC=mix(vec3(0.82,0.88,1.0),vec3(1.0,0.86,0.58),smoothstep(0.70,1.0,uStarTint));
+  col+=(star*taperS*1.6+coreS)*silkS*uStarInt*(0.10+1.15*uFrontLight)*rayC;
+#endif
 #ifdef SLICE_TRAPICHE
   /* [透射貓眼]（A 路線，科研報告 §4-bis「大衛之星」）：徑向直位錯束把穿石背光
      散向觀察者。帶＝折射視線 ⊥ 纖維的零跡線（銳線＋柔暈），隨傾斜沿半徑掃動；
@@ -795,6 +854,8 @@ const state={
   frontLight:0.6,
   /* 前光方向【人類決 2026-07-17】：跟隨視角先行，固定燈位保留為選項（面板可切） */
   keyFollow:localStorage.getItem('lumenlens.keyfollow')!=='0',
+  /* 手電筒模式【人類決：C 案，限星石】：游標位置驅動光源方向 */
+  flash:localStorage.getItem('lumenlens.flash')==='1',
   /* 蛋面：桌面預設開、觸控預設關（弱 GPU 保護），localStorage/hash 可覆寫 */
   dome:(localStorage.getItem('lumenlens.dome')??(IS_TOUCH?'0':'1'))==='1',
 };
@@ -809,12 +870,14 @@ if(HASH.zoom!==undefined){state.zoomT=parseFloat(HASH.zoom);state.zoom=state.zoo
 if(HASH.backlight!==undefined)state.backlight=Math.max(0,Math.min(1.5,parseFloat(HASH.backlight)));
 if(HASH.front!==undefined)state.frontLight=Math.max(0,Math.min(1.5,parseFloat(HASH.front)));
 if(HASH.keyfix!==undefined)state.keyFollow=!(HASH.keyfix==='1'||HASH.keyfix===true);
+if(HASH.flash!==undefined)state.flash=(HASH.flash==='1'||HASH.flash===true);
 if(HASH.dome!==undefined)state.dome=(HASH.dome==='1'||HASH.dome===true);
 
 /* ================================================================
    [SEC:INPUT] 拖曳轉切片（相機固定）：水平=自旋 垂直=傾斜 pinch=縮放
    ================================================================ */
 const pts=new Map();let pinchD=0;let interacted=false;
+let _ptrX=0,_ptrY=0.45; /* 手電筒模式的游標位置（NDC，預設偏上）*/
 canvas.addEventListener('pointerdown',e=>{
   canvas.setPointerCapture(e.pointerId);
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -822,13 +885,19 @@ canvas.addEventListener('pointerdown',e=>{
   canvas.classList.add('grabbing');
 });
 canvas.addEventListener('pointermove',e=>{
+  /* 手電筒：游標永遠被追蹤（桌面 hover 移光免按鍵；觸控＝單指拖移光）*/
+  _ptrX=(e.clientX/window.innerWidth)*2-1;
+  _ptrY=1-(e.clientY/window.innerHeight)*2;
   if(!pts.has(e.pointerId))return;
   const prev=pts.get(e.pointerId);
   const dx=e.clientX-prev.x,dy=e.clientY-prev.y;
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pts.size===1){
-    state.spinT+=dx*0.011;
-    state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,state.tiltT+dy*0.008));
+    /* 手電筒開啟時（限星石）：單指拖＝移光不轉石【AI 代決可改】；桌面拖曳照常轉石 */
+    if(!(state.flash&&state.sliceId==='star'&&IS_TOUCH)){
+      state.spinT+=dx*0.011;
+      state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,state.tiltT+dy*0.008));
+    }
     if(!interacted){interacted=true;document.getElementById('hint').classList.add('gone');}
   }else if(pts.size===2){
     const a=[...pts.values()];const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
@@ -899,14 +968,17 @@ function buildSliders(){
     addRow(tx('蛋面高度','Dome height'),0.35,1.05,0.01,
       ()=>dm.uniforms.uDomeH.value,
       v=>applyDomeH(v),2);
-    addRow(tx('貓眼絲光','Cat’s-eye'),0,1.5,0.05,
-      ()=>dm.uniforms.uCatEye.value,v=>{dm.uniforms.uCatEye.value=v;},2);
-    addRow(tx('裂隙密度','Crack density'),0,2,0.05,
-      ()=>dm.uniforms.uCrackAmt.value,v=>{dm.uniforms.uCrackAmt.value=v;},2);
-    addRow(tx('裂隙範圍','Crack spread'),0,2,0.05,
-      ()=>dm.uniforms.uCrackSpread.value,v=>{dm.uniforms.uCrackSpread.value=v;},2);
-    addRow(tx('核心尺寸','Core size'),0.06,0.28,0.005,
-      ()=>dm.uniforms.uCoreSize.value,v=>{dm.uniforms.uCoreSize.value=v;},3);
+    /* 達碧茲專屬滑桿：其他 dome 標本（星石）不顯示 */
+    if(s.id==='trapiche'){
+      addRow(tx('貓眼絲光','Cat’s-eye'),0,1.5,0.05,
+        ()=>dm.uniforms.uCatEye.value,v=>{dm.uniforms.uCatEye.value=v;},2);
+      addRow(tx('裂隙密度','Crack density'),0,2,0.05,
+        ()=>dm.uniforms.uCrackAmt.value,v=>{dm.uniforms.uCrackAmt.value=v;},2);
+      addRow(tx('裂隙範圍','Crack spread'),0,2,0.05,
+        ()=>dm.uniforms.uCrackSpread.value,v=>{dm.uniforms.uCrackSpread.value=v;},2);
+      addRow(tx('核心尺寸','Core size'),0.06,0.28,0.005,
+        ()=>dm.uniforms.uCoreSize.value,v=>{dm.uniforms.uCoreSize.value=v;},3);
+    }
   }
 }
 function domeSupported(){const s=curSlice();return !!(s.dome&&domeMats[s.id]);}
@@ -918,6 +990,8 @@ function applyDome(){
   /* 前光只作用在蛋面 shader，平面檢視時藏掉 */
   $('frontRow').style.display=on?'flex':'none';
   $('keyFollowRow').style.display=on?'flex':'none';
+  /* 手電筒模式【人類決】限星石 */
+  $('flashRow').style.display=(on&&state.sliceId==='star')?'flex':'none';
   $('domeChk').checked=state.dome;
 }
 $('domeChk').onchange=()=>{state.dome=$('domeChk').checked;
@@ -940,6 +1014,9 @@ $('frontlightVal').textContent=state.frontLight.toFixed(2);
 $('keyFollowChk').checked=state.keyFollow;
 $('keyFollowChk').onchange=()=>{state.keyFollow=$('keyFollowChk').checked;
   localStorage.setItem('lumenlens.keyfollow',state.keyFollow?'1':'0');};
+$('flashChk').checked=state.flash;
+$('flashChk').onchange=()=>{state.flash=$('flashChk').checked;
+  localStorage.setItem('lumenlens.flash',state.flash?'1':'0');};
 $('resetBtn').onclick=resetView;
 $('langBtn').onclick=()=>{
   UI_LANG=UI_LANG==='zh'?'en':'zh';localStorage.setItem('lumenlens.lang',UI_LANG);
@@ -1073,8 +1150,9 @@ function animate(now){
   mat.uniforms.uTilt.value=state.tilt;
   mat.uniforms.uBacklight.value=state.backlight;
   mat.uniforms.uTime.value=now*0.001;
-  /* 前光方向（世界空間）：跟隨式＝觀察者方向抬高（頭燈偏上），固定式＝攝影棚燈位 */
-  if(state.keyFollow){_keyW.copy(camera.position).normalize();_keyW.y+=1.25;_keyW.normalize();}
+  /* 前光方向（世界空間）：手電筒（星石限定，游標=光）＞跟隨式（觀察者方向抬高）＞固定燈位 */
+  if(state.flash&&state.sliceId==='star'&&dome.visible){_keyW.set(_ptrX*0.85,_ptrY*0.85,0.75).normalize();}
+  else if(state.keyFollow){_keyW.copy(camera.position).normalize();_keyW.y+=1.25;_keyW.normalize();}
   else _keyW.copy(KEY_FIXED);
   mat.uniforms.uKeyDir.value.copy(_keyW);
   mat.uniforms.uFrontLight.value=state.frontLight;

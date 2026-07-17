@@ -524,10 +524,11 @@ vec3 wallOD(vec3 P,vec3 rd,float tSeg,float pl){
   float hexRim=1.0-smoothstep(0.020,0.050,abs(dHexC-uCoreSize*0.80));
   float chord=2.0*sqrt(max(uCoreSize*uCoreSize-dHexC*dHexC,0.0))/max(sqrt(rl),0.08);
   float zn=clamp(qc3.z/hN,0.0,1.0);
-  /* 底 0.72 不是 0.32：核心骨幹要「保留深度但不透明低」（用戶回饋）——
-     漸層留著（頂 2.6 倍於底），整體吸收拉高＝柱體實心感 */
-  float depthW=mix(0.72,1.90,zn*zn);
-  odC+=(covC*uCoreDensity+hexRim*1.5)*depthW*min(chord,tSeg)/tN;
+  /* 核柱實體化（用戶：核心要是實體不是空心）：垂直俯視時 tc 夾到底部 zn≈0，
+     舊底值 0.72 會讓核透出光桌熱點＝幽靈空心感。底值墊高＋內部吸收加權、
+     hex 壁與內部對比壓低（壁太亮於內部＝線框感）；深度漸層保留（頂:底≈1.8:1）*/
+  float depthW=mix(1.25,2.25,zn*zn);
+  odC+=(covC*uCoreDensity*1.35+hexRim*0.9)*depthW*min(chord,tSeg)/tN;
   /* 臂＝偏中性吸收；核＝吸紅藍透綠（深綠半透，錨點照的核不是黑是墨綠）*/
   return exp(-(vec3(0.9,0.95,1.05)*od+vec3(1.7,0.62,1.35)*odC)*pl);
 }
@@ -598,10 +599,14 @@ void main(){
   vec3 front=(halo*1.35+pow(ndh,9.0)*0.03+pow(ndh,240.0)*0.55)*uFrontLight*vec3(0.93,0.96,1.0);
   float rimGlow=pow(1.0-ndi,2.6);
   /* 球體素描形體陰影（用戶紫圈）：透射體隨面轉離視線壓暗＝外環暗帶；
-     最外緣的 Fresnel 反光/rim glow/前光弧不吃 form，保留「最外環反光」*/
-  float form=mix(0.32,1.0,smoothstep(0.08,0.50,ndi));
+     最外緣的 Fresnel 反光/rim glow/前光弧不吃 form，保留「最外環反光」。
+     v3.8 收窄過渡帶＋壓深底值＝陰影界線更明確（用戶紫箭頭「邊界陰影界線增強」）*/
+  float form=mix(0.26,1.0,smoothstep(0.10,0.44,ndi));
   vec3 col=trans*(1.0-F)*form+refl*F*grooveAO+vec3(spec)*grooveAO+front*grooveAO;
   col+=rimGlow*uGlowColor3*(0.10+0.30*uBacklight)*grooveAO; /* 果凍水潤邊 */
+  /* 邊緣濕亮線（用戶紅箭頭）：拋光腰稜貼著輪廓的細高光弧，背光越強越亮；
+     不吃 grooveAO——拋光面連續，亮線越過臂端（錨點照如此）*/
+  col+=pow(1.0-ndi,14.0)*(0.30+0.80*uBacklight)*1.25*vec3(0.85,1.0,0.92);
 #ifdef SLICE_TRAPICHE
   /* [透射貓眼]（A 路線，科研報告 §4-bis「大衛之星」）：徑向直位錯束把穿石背光
      散向觀察者。帶＝折射視線 ⊥ 纖維的零跡線（銳線＋柔暈），隨傾斜沿半徑掃動；

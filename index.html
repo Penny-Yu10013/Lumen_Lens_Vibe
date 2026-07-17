@@ -159,6 +159,10 @@ body.shot #panelBtn,body.shot #hint{display:none!important}
   </div>
   <label class="chkRow" id="keyFollowRow"><input type="checkbox" id="keyFollowChk" checked><span data-i18n="keyfollow">前光跟隨視角</span></label>
   <label class="chkRow" id="flashRow"><input type="checkbox" id="flashChk"><span data-i18n="flashlight">手電筒模式（游標＝光）</span></label>
+  <div class="chkRow" id="lightSrcRow">
+    <button class="miniBtn" id="srcDayBtn" style="flex:1;width:auto;height:30px;font-size:11.5px" data-i18n="daylight">☀ 日光</button>
+    <button class="miniBtn" id="srcWarmBtn" style="flex:1;width:auto;height:30px;font-size:11.5px" data-i18n="candle">🕯 燭光</button>
+  </div>
   <hr>
   <div class="pTitle" id="paramTitle" data-i18n="params">標本參數</div>
   <div id="paramSliders" style="display:flex;flex-direction:column;gap:12px"></div>
@@ -210,6 +214,8 @@ const I18N_STATIC={
   frontlight:{zh:'前光',en:'Key light'},
   keyfollow:{zh:'前光跟隨視角',en:'Key light follows view'},
   flashlight:{zh:'手電筒模式（游標＝光）',en:'Flashlight (cursor = light)'},
+  daylight:{zh:'☀ 日光',en:'☀ Daylight'},
+  candle:{zh:'🕯 燭光',en:'🕯 Candle'},
   params:{zh:'標本參數',en:'SPECIMEN'},
   glassfx:{zh:'玻璃效果',en:'Glass effect'},
   reset:{zh:'視角回正',en:'Reset view'},
@@ -246,13 +252,26 @@ const SLICES=[
    line:'三組金紅石絲互成六十度、皆垂直 c 軸——單點光下三條亮帶交會成六芒星，星心永遠追著光跑。',
    lineEn:'Three sets of rutile silk, 60° apart and all perpendicular to the c-axis — under a point light three bands cross into a six-rayed star that follows the light.',
    define:'SLICE_STAR', glow:[0.45,0.60,0.95], dome:true,
-   uniforms:{uMilk:1.0,uZoneAmt:0.6,uStarInt:0.9,uStarTint:0,uStarSharp:1.0,uThickness:1.2},
+   uniforms:{uMilk:1.0,uZoneAmt:0.6,uStarInt:0.9,uStarTint:0,uStarSharp:1.0,uRimGlow:0.7,uThickness:1.2},
    sliders:[
      {k:'uMilk', zh:'乳霧濃度', en:'Milkiness', min:.3,max:2,step:.05},
      {k:'uZoneAmt',zh:'六方色帶',en:'Hex zoning',min:0,max:1.5,step:.05},
      {k:'uStarInt',zh:'星光強度',en:'Star intensity',min:0,max:1.5,step:.05},
      {k:'uStarTint',zh:'色系（藍→紫→紅→黑）',en:'Hue (blue→red→black)',min:0,max:1,step:.01},
      {k:'uStarSharp',zh:'星線銳利度',en:'Ray sharpness',min:.4,max:2.2,step:.05},
+     {k:'uRimGlow',zh:'輪廓光暈',en:'Rim glow',min:0,max:1.5,step:.05},
+     {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
+ { id:'alex',
+   name:'亞歷山大貓眼', nameEn:'Cat’s-Eye Alexandrite',
+   system:'斜方晶系 · 斯里蘭卡', systemEn:'Orthorhombic · Sri Lanka',
+   line:'Cr³⁺ 開了兩扇透射窗——日光下藍綠窗贏、燭光下紅窗贏；單方向絲光再劃一條貓眼。變色不在石頭裡，在光源裡。',
+   lineEn:'Cr³⁺ opens two transmission windows — daylight favours blue-green, candlelight red. One set of silk draws a single cat’s-eye. The colour change lives in the light, not the stone.',
+   define:'SLICE_ALEX', glow:[0.25,0.65,0.55], dome:true,
+   uniforms:{uMilk:1.0,uAlexEye:0.9,uWarm:0,uRimGlow:0.6,uThickness:1.2},
+   sliders:[
+     {k:'uMilk',zh:'絲光濃度',en:'Silk density',min:.3,max:2,step:.05},
+     {k:'uAlexEye',zh:'貓眼強度',en:'Eye intensity',min:0,max:1.5,step:.05},
+     {k:'uRimGlow',zh:'輪廓光暈',en:'Rim glow',min:0,max:1.5,step:.05},
      {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
  { id:'liddicoatite',
    name:'李迪克碧璽', nameEn:'Liddicoatite Tourmaline',
@@ -301,6 +320,7 @@ uniform float uBandDensity,uD0,uDGrad,uIrisGain;
 uniform float uIor,uDisp,uDispStr,uDomeH,uFrontLight;
 uniform float uCatEye,uCrackAmt,uCrackSpread,uCoreSize;
 uniform float uMilk,uZoneAmt,uStarInt,uStarTint,uStarSharp;
+uniform float uAlexEye,uWarm,uRimGlow;
 uniform vec3 uGlowColor3,uKeyDir;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -329,6 +349,11 @@ float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.22);
 /* 近圓微橢的蛋面輪廓（錨點 star_1「偏圓」）*/
 float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.07);
   return length(q)*(1.0+0.025*fbm(q*2.1+vec2(5.2,1.3)))-0.95;}
+#endif
+#ifdef SLICE_ALEX
+/* 橢圓蛋面輪廓（貓眼慣用長橢，長軸⊥纖維讓帶橫過最寬處）*/
+float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.16);
+  return length(q)*(1.0+0.02*fbm(q*2.3+vec2(7.7,2.9)))-0.95;}
 #endif
 
 /* ---- 光譜近似：三峰 Gaussian，λ 出可見光自動熄滅 ---- */
@@ -475,6 +500,21 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
     sigStar=tt<0.34?mix(cB,cP,tt/0.34):(tt<0.67?mix(cP,cR,(tt-0.34)/0.33):mix(cR,cK,(tt-0.67)/0.33));
   }
   T=exp(-sigStar*dens*pathLen);
+#endif
+
+#ifdef SLICE_ALEX
+  /* 亞歷山大石（金綠玉）：Cr3+ 雙透射窗（藍綠窗＋紅窗、黃帶吸收谷）。
+     RGB 三通道塞不下「紅綠都透、中間黃吸收」——必須分 4 頻帶採樣（科研報告 §5）。
+     吸收係數固定、光源權重 uWarm 切換（0=日光 1=燭光）＝變色機制本體 */
+  float dA=uMilk*(0.9+0.25*fbm(p*5.0));
+  dA*=1.0+0.08*(vnoise(vec2(p.y*60.0,p.x*6.0))-0.5); /* ⊥纖維細條紋（輕，太強會變木紋珠——踩過）*/
+  float tR=exp(-0.90*dA*pathLen),tY=exp(-4.5*dA*pathLen),
+        tG=exp(-0.85*dA*pathLen),tB=exp(-1.75*dA*pathLen);
+  /* 光源權重差距要敢拉（保守=灰棕微變，踩過兩輪）：日光偏藍綠端；
+     燭光壓綠、紅全開、藍補到超物理量（0.85）——紫紅不是橘棕的關鍵是紫端洩漏，藝術誇張量 */
+  vec4 wL=mix(vec4(0.40,0.80,1.50,1.35),vec4(2.10,1.00,0.38,0.85),uWarm);
+  T=(tR*wL.x*spectral(650.0)+tY*wL.y*spectral(583.0)
+    +tG*wL.z*spectral(515.0)+tB*wL.w*spectral(455.0))*0.78;
 #endif
 
   vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
@@ -635,7 +675,15 @@ void main(){
   float haloBand=smoothstep(0.50,0.60,wr)*(1.0-smoothstep(0.72,0.84,wr));
   float arcGate=smoothstep(0.15,0.65,arcT);
   float halo=haloBand*arcGate*smoothstep(0.12,0.35,ndi);
+#if defined(SLICE_STAR)||defined(SLICE_ALEX)
+  /* 星石/亞歷撤掉光環弧帶——手電筒把光移到側面時弧帶變成貼紙月亮
+     （用戶「不要月牙」的真兇＝這條 v3 遺產，不是 limb）。邊緣光交給 limb brightening */
+  halo=0.0;
+#endif
   vec3 front=(halo*1.35+pow(ndh,9.0)*0.03+pow(ndh,240.0)*0.55)*uFrontLight*vec3(0.93,0.96,1.0);
+#ifdef SLICE_ALEX
+  front*=0.22; /* 貓眼不出曝光點（批改）：通用 sheen/spec 壓到微量，亮度只從眼線出來 */
+#endif
   float rimGlow=pow(1.0-ndi,2.6);
   /* 球體素描形體陰影（用戶紫圈）：透射體隨面轉離視線壓暗＝外環暗帶；
      最外緣的 Fresnel 反光/rim glow/前光弧不吃 form，保留「最外環反光」。
@@ -646,6 +694,14 @@ void main(){
   /* 邊緣濕亮線（用戶紅箭頭）：拋光腰稜貼著輪廓的細高光弧，背光越強越亮；
      不吃 grooveAO——拋光面連續，亮線越過臂端（錨點照如此）*/
   col+=pow(1.0-ndi,14.0)*(0.30+0.80*uBacklight)*1.25*vec3(0.85,1.0,0.92);
+  /* 輪廓漸亮 limb brightening（月牙貼片已回退重做——用戶：沒有星光寶石有月牙）：
+     fresnel 邊緣項（ndi→0）×光源方位遮罩（光側半圈）＝蛋面 shading 的一部分，
+     由輪廓向內指數衰減、任何角度貼著輪廓線無縫融入，不是加上去的形狀。
+     未給 uRimGlow 的標本（達碧茲）＝0 自動關 */
+  vec2 lDirC=normalize(uKeyDir.xy+vec2(0.0,1e-3));
+  float limb=pow(1.0-ndi,6.0);
+  float azM=smoothstep(-0.15,0.75,dot(vWorldPos.xy/max(length(vWorldPos.xy),1e-4),lDirC));
+  col+=limb*azM*uRimGlow*(0.25+0.85*uFrontLight)*vec3(0.90,0.95,1.0)*0.9;
 #ifdef SLICE_STAR
   /* [星光] epi-asterism（星石科研報告 §5）：三組金紅石針互成 60°、⊥c、鎖晶體
      （局部座標常數方向＝自旋時星臂跟轉）。u＝法線對半程向量的偏移（反射點 u=0，
@@ -657,14 +713,51 @@ void main(){
   for(int k=0;k<3;k++){
     float phk=float(k)*(PI/3.0);
     float uk=dot(uS.xy,vec2(cos(phk),sin(phk)));
-    star+=exp(-uk*uk*Ks);
+    star=max(star,exp(-uk*uk*Ks));             /* max 不是 sum：帶交會處不額外加亮（用戶批改）*/
   }
   float taperS=exp(-dot(uS,uS)*7.0);           /* 星臂向外漸細漸淡（錨點 star_1）*/
   float silkS=0.82+0.18*vnoise(vPos.xy*34.0);
-  float coreS=exp(-dot(uS,uS)*90.0)*0.8;       /* 星心乳暈 */
+  /* 受光半球 gate：u 空間高斯不分 θ 與 180°−θ，光的反位半球會鬼影出
+     「對角線微光」（用戶批改抓到的殘留線）——非六帶的線狀亮度一律歸零 */
+  float hemiS=smoothstep(0.0,0.22,dot(nl,H));
+  /* 星心＝真鏡面點（pow 320）＋2 副點：沿帶方向、距主點 0.20/0.28（批改規格 0.15–0.3；
+     舊版 H 偏移太小＝縮進主點光斑看不見，踩過）*/
+  float ndhP=max(dot(nl,H),0.0);
+  /* 副點微偏離帶軸（正壓在臂上會被臂亮度吞掉，踩過）＋強度拉高到可讀 */
+  vec2 oP1=uS.xy-vec2(0.045,0.205);
+  vec2 oP2=uS.xy-vec2(0.255,-0.160);
+  float pts=pow(ndhP,320.0)*3.0
+    +exp(-dot(oP1,oP1)*1900.0)*0.95
+    +exp(-dot(oP2,oP2)*2100.0)*0.70;
   /* 黑星端星線轉古銅金：黑星藍寶的絲是赤鐵礦/鈦鐵礦不是金紅石，星線偏金（礦物學正確）*/
   vec3 rayC=mix(vec3(0.82,0.88,1.0),vec3(1.0,0.86,0.58),smoothstep(0.70,1.0,uStarTint));
-  col+=(star*taperS*1.6+coreS)*silkS*uStarInt*(0.10+1.15*uFrontLight)*rayC;
+  col+=star*taperS*1.9*silkS*hemiS*uStarInt*(0.10+1.15*uFrontLight)*rayC;
+  col+=pts*hemiS*uStarInt*(0.10+1.15*uFrontLight)*vec3(0.95,0.97,1.0);
+#endif
+#ifdef SLICE_ALEX
+  /* [貓眼] 金綠玉單方向纖維＝單帶（星石機制的單方向版，科研報告 §3）。
+     v2 批改三項：雙層帶／縱向調變／milk & honey 分側——「眼銳、暈柔、兩側一亮一暗、邊緣沉下去」*/
+  vec3 uA=nl-H*dot(nl,H);
+  float ua=uA.x;
+  float hemiA=smoothstep(0.0,0.22,dot(nl,H)); /* 受光半球 gate（同星石：殺反位鬼影帶）*/
+  /* milk & honey v3（批改重做）：分側與帶用**同一個 ua**（帶的 signed distance）；
+     光側符號＝keyL.x（每幀常數）——舊版用每像素 H.x，符號翻轉線變成直線弦切
+     「雙色皮球」（踩過，批改抓到）。寬過渡＝帶寬 3–5 倍（≈半徑 30%）；
+     對比降檔 1.2/0.8【批改：分界貼線是主菜，對比是配菜，做對再往回加】 */
+  float sideF=smoothstep(-0.30,0.30,ua*(keyL.x>=0.0?1.0:-1.0));
+  col*=mix(0.80,1.20,sideF);
+  /* 邊緣壓暗＝放射狀 fresnel（沿輪廓一圈往內），禁止任何直線 */
+  col*=1.0-0.30*smoothstep(0.78,1.00,length(vWorldPos.xy)/1.06);
+  /* 雙層帶：核心線（窄 ×2 冷白）＋外暈（寬 ×0.38 柔）；
+     縱向低頻調變（0.7–1.0）＋中亮兩端衰減＝殺掉均勻日光燈管感 */
+  float lenM=(0.70+0.30*vnoise(vec2(vPos.y*2.0,7.7)))*(0.72+0.28*exp(-vPos.y*vPos.y*1.3));
+  float bandCore=exp(-ua*ua*45000.0)*2.0;
+  float bandHalo=exp(-ua*ua*600.0)*0.38;
+  float taperA=exp(-dot(uA,uA)*6.0);
+  float silkA=0.85+0.15*vnoise(vec2(vPos.y*40.0,vPos.x*7.0));
+  vec3 eyeC=mix(vec3(0.95,0.92,0.78),vec3(1.0,0.85,0.62),uWarm);
+  /* 曝光點已拆除【用戶批改：貓眼不會有中心光點——那是星石的特徵，亞歷只有帶】 */
+  col+=(bandCore*mix(vec3(1.0),eyeC,0.35)+bandHalo*eyeC)*lenM*taperA*silkA*hemiA*uAlexEye*(0.10+1.15*uFrontLight);
 #endif
 #ifdef SLICE_TRAPICHE
   /* [透射貓眼]（A 路線，科研報告 §4-bis「大衛之星」）：徑向直位錯束把穿石背光
@@ -856,6 +949,8 @@ const state={
   keyFollow:localStorage.getItem('lumenlens.keyfollow')!=='0',
   /* 手電筒模式【人類決：C 案，限星石】：游標位置驅動光源方向 */
   flash:localStorage.getItem('lumenlens.flash')==='1',
+  /* 亞歷變色光源【人類決：兩鍵瞬切不做滑桿】false=日光 true=燭光 */
+  warm:false,
   /* 蛋面：桌面預設開、觸控預設關（弱 GPU 保護），localStorage/hash 可覆寫 */
   dome:(localStorage.getItem('lumenlens.dome')??(IS_TOUCH?'0':'1'))==='1',
 };
@@ -871,6 +966,7 @@ if(HASH.backlight!==undefined)state.backlight=Math.max(0,Math.min(1.5,parseFloat
 if(HASH.front!==undefined)state.frontLight=Math.max(0,Math.min(1.5,parseFloat(HASH.front)));
 if(HASH.keyfix!==undefined)state.keyFollow=!(HASH.keyfix==='1'||HASH.keyfix===true);
 if(HASH.flash!==undefined)state.flash=(HASH.flash==='1'||HASH.flash===true);
+if(HASH.warm!==undefined)state.warm=(HASH.warm==='1'||HASH.warm===true);
 if(HASH.dome!==undefined)state.dome=(HASH.dome==='1'||HASH.dome===true);
 
 /* ================================================================
@@ -992,6 +1088,8 @@ function applyDome(){
   $('keyFollowRow').style.display=on?'flex':'none';
   /* 手電筒模式【人類決】限星石 */
   $('flashRow').style.display=(on&&state.sliceId==='star')?'flex':'none';
+  /* 日光/燭光兩鍵：限亞歷（平面/蛋面都吃變色，只看 sliceId）*/
+  $('lightSrcRow').style.display=state.sliceId==='alex'?'flex':'none';
   $('domeChk').checked=state.dome;
 }
 $('domeChk').onchange=()=>{state.dome=$('domeChk').checked;
@@ -1017,6 +1115,14 @@ $('keyFollowChk').onchange=()=>{state.keyFollow=$('keyFollowChk').checked;
 $('flashChk').checked=state.flash;
 $('flashChk').onchange=()=>{state.flash=$('flashChk').checked;
   localStorage.setItem('lumenlens.flash',state.flash?'1':'0');};
+/* 亞歷變色：日光/燭光兩鍵瞬切【人類決：不做滑桿——變色的戲劇性在瞬間切換】 */
+function applyLightSrc(){
+  if(sliceMats.alex)sliceMats.alex.uniforms.uWarm.value=state.warm?1:0;
+  $('srcDayBtn').style.borderColor=state.warm?'':'rgba(180,220,255,.65)';
+  $('srcWarmBtn').style.borderColor=state.warm?'rgba(255,200,130,.75)':'';
+}
+$('srcDayBtn').onclick=()=>{state.warm=false;applyLightSrc();};
+$('srcWarmBtn').onclick=()=>{state.warm=true;applyLightSrc();};
 $('resetBtn').onclick=resetView;
 $('langBtn').onclick=()=>{
   UI_LANG=UI_LANG==='zh'?'en':'zh';localStorage.setItem('lumenlens.lang',UI_LANG);
@@ -1080,6 +1186,7 @@ const _glowCol=new THREE.Color();
 function updateGlowColor(){
   const s=curSlice();
   let c=s.glow.slice();
+  if(s.id==='alex'&&state.warm)c=[0.72,0.30,0.38]; /* 燭光模式：UI 光暈跟著轉紫紅 */
   if(s.id==='iris'){
     /* 與 shader 一致：有效視角 ≈ tilt − REST_ANGLE（正傾先抵銷相機俯角）*/
   const sv=Math.abs(Math.sin(state.tilt-REST_ANGLE));
@@ -1170,6 +1277,7 @@ function animate(now){
    ================================================================ */
 applyStaticLang();
 setSlice(state.sliceId);
+applyLightSrc();
 precompile();
 if(HASH.disp!==undefined)for(const id in domeMats)domeMats[id].uniforms.uDisp.value=(HASH.disp==='0'?0:1);
 if(HASH.cat!==undefined)for(const id in domeMats)domeMats[id].uniforms.uCatEye.value=Math.max(0,parseFloat(HASH.cat)||0);

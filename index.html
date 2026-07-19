@@ -524,7 +524,9 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
      日光/燭光鍵、重疊帶自然出兩窗加權中間色（髒紫棕）——石頭是被動濾鏡，每個
      區域的顏色＝照到它的光譜×透射窗。寬羽化＝實石內部散射抹柔邊界，銳圓是假的 */
   float poolW=(1.0-smoothstep(0.35,1.15,length(p-uFlashPos)))*uFlashAmt;
-  float warmW=max(uWarm,poolW);
+  /* 束＝環境光的互補光源（用戶回報：燭光下照光還是紅＝bug）：日光環境配白熾筆燈
+     （束內紅窗）、燭光環境配日光筆燈（束內綠窗）——abs 一式雙向翻轉 */
+  float warmW=abs(uWarm-poolW);
   vec4 wL=mix(vec4(0.40,0.80,1.50,1.35),vec4(2.10,1.00,0.38,0.85),warmW);
   T=(tR*wL.x*spectral(650.0)+tY*wL.y*spectral(583.0)
     +tG*wL.z*spectral(515.0)+tB*wL.w*spectral(455.0))*0.78;
@@ -659,11 +661,14 @@ void main(){
   float thA=thG-aG;
   vec3 gPer=vec3(-sin(thA),cos(thA),0.0);          /* 垂直臂軸的切向 */
   /* 邊緣提早收（0.70–0.94）：陡峭區的溝折射會把亮線抹成放射狀破圖條紋（用戶回報）*/
-  float gAmp=0.55*smoothstep(0.10,0.30,rG)*(1.0-smoothstep(0.70,0.94,rG));
+  float gAmp=0.38*smoothstep(0.10,0.30,rG)*(1.0-smoothstep(0.70,0.94,rG));
   nl=normalize(nl-gPer*wall*gAmp);
-  /* 臂＝縫隙生長的碳質實體＝消光體（用戶+礦物學）：反光項在臂上幾乎全滅，
-     只留 V 溝暗痕。0.82 不是 0.35——亮壁玻璃管感的來源就是這裡留太多 */
-  grooveAO=1.0-inG*0.82;
+  /* [v6.1 去玻璃感] 溝壁磨砂化：碳質縫隙不是光學級拋光面——溝內法線加高頻抖動，
+     殘餘鏡面反射散成碎斑不成帶（用戶：高蛋面斜視 V 溝絲光帶像玻璃仿製品）*/
+  nl=normalize(nl+vec3(vnoise(vPos.xy*47.0)-0.5,vnoise(vPos.xy*47.0+vec2(3.3,8.8))-0.5,0.0)*inG*0.22);
+  /* 臂＝縫隙生長的碳質實體＝消光體（用戶+礦物學）：反光項在臂上幾乎全滅。
+     AO 蓋到全溝含兩壁（舊版只蓋溝心 inG，壁上 spec/refl 掃出寬亮帶＝玻璃管真兇）*/
+  grooveAO=1.0-(1.0-smoothstep(wG*1.15,wG*2.0,abs(sG)))*0.85;
   /* [核凸出 v6] 用戶批改：核柱要凸出/到達頂面，不是懸在蛋面裡。表面 hex 內
      法線壓平成 basal 頂面＋hex 邊緣斜面環＝六角柱頂在蛋面上開出平台（科研報告
      §5 頂面交線的立體版）。只動 nl（反光層），nl0 折射不動——法線雙軌制 */
@@ -868,7 +873,7 @@ void main(){
 const TABLE_FRAG=`
 precision highp float;
 varying vec2 vUv;
-uniform float uBacklight,uTime,uFlashAmt;
+uniform float uBacklight,uTime,uFlashAmt,uFlashWarm;
 uniform vec2 uFlashW;
 uniform vec3 uGlowColor;
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -883,8 +888,10 @@ void main(){
   float dust=vnoise(p*2.4)*0.05;
   vec3 base=mix(vec3(0.90,0.95,1.0),uGlowColor,0.12);
   vec3 col=(disc+halo)*(0.92+dust)*uBacklight*base;
-  /* 手電筒暖束落在光桌上的溢光（亞歷混色打光）：有界 pool，束外精確歸零＝不生灰霧 */
-  col+=(1.0-smoothstep(0.55,1.55,length(p-uFlashW)))*uFlashAmt*vec3(0.85,0.32,0.10)*0.55;
+  /* 手電筒束落在光桌上的溢光（亞歷混色打光）：有界 pool，束外精確歸零＝不生灰霧。
+     束色＝環境光互補：日光環境＝暖橘、燭光環境＝日光藍白 */
+  vec3 beamC=mix(vec3(0.85,0.32,0.10),vec3(0.38,0.55,0.95),uFlashWarm);
+  col+=(1.0-smoothstep(0.55,1.55,length(p-uFlashW)))*uFlashAmt*beamC*0.55;
   col=col/(1.0+col);
   col=pow(col,vec3(0.4545));
   col+=(hash(gl_FragCoord.xy)-0.5)*0.008; /* dither 破 8-bit banding */
@@ -926,7 +933,7 @@ function makeCommonUniforms(){return{
   uInvRot:{value:new THREE.Matrix3()}};}
 
 const tableUniforms={uBacklight:{value:1},uTime:{value:0},uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)},
-  uFlashW:{value:new THREE.Vector2(0,0)},uFlashAmt:{value:0}};
+  uFlashW:{value:new THREE.Vector2(0,0)},uFlashAmt:{value:0},uFlashWarm:{value:0}};
 const table=new THREE.Mesh(new THREE.PlaneGeometry(30,30),
   new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:TABLE_FRAG,uniforms:tableUniforms}));
 /* z=-0.8：切片傾斜 ±40° 時 z 最低到 -0.71，要留在光桌前面（踩過：-0.05 會把下半片深度裁掉）*/
@@ -1339,6 +1346,7 @@ function animate(now){
       mat.uniforms.uFlashPos.value.set(_v3a.x,_v3a.y);
     }
     mat.uniforms.uFlashAmt.value=1;tableUniforms.uFlashAmt.value=1;
+    tableUniforms.uFlashWarm.value=state.warm?1:0; /* 束色＝環境互補 */
   }else{mat.uniforms.uFlashAmt.value=0;tableUniforms.uFlashAmt.value=0;}
   mat.uniforms.uFrontLight.value=state.frontLight;
   tableUniforms.uBacklight.value=state.backlight;

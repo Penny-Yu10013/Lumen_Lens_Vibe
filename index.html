@@ -132,6 +132,11 @@ body.shot #panelBtn,body.shot #hint{display:none!important}
   #wordmark{font-size:13px}
   #topRight{top:12px;right:12px}
 }
+/* 英文版 chips：長名塞不進 300px 卡的 5 欄 flex（每顆 46px 必爆）——改 3 欄網格兩行、
+   縮字級、允許折行不截斷（放 media query 後面，手機版 nowrap/ellipsis 也要被蓋掉）*/
+#chips.en{display:grid;grid-template-columns:repeat(3,1fr)}
+#chips.en .chip{font-size:10px;padding:6px 3px;line-height:1.3;letter-spacing:0;
+  white-space:normal;overflow:visible;text-overflow:clip}
 </style>
 </head>
 <body>
@@ -322,6 +327,8 @@ uniform float uIor,uDisp,uDispStr,uDomeH,uFrontLight;
 uniform float uCatEye,uCrackAmt,uCrackSpread,uCoreSize;
 uniform float uMilk,uZoneAmt,uStarInt,uStarTint,uStarSharp;
 uniform float uAlexEye,uAlexSharp,uWarm,uRimGlow;
+uniform vec2 uFlashPos;
+uniform float uFlashAmt;
 uniform vec3 uGlowColor3,uKeyDir;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -513,9 +520,15 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
         tG=exp(-0.85*dA*pathLen),tB=exp(-1.75*dA*pathLen);
   /* 光源權重差距要敢拉（保守=灰棕微變，踩過兩輪）：日光偏藍綠端；
      燭光壓綠、紅全開、藍補到超物理量（0.85）——紫紅不是橘棕的關鍵是紫端洩漏，藝術誇張量 */
-  vec4 wL=mix(vec4(0.40,0.80,1.50,1.35),vec4(2.10,1.00,0.38,0.85),uWarm);
+  /* [v5 混色打光] 手電筒暖束（白熾筆燈）＝局部光源光譜替換：束內紅窗贏、束外跟
+     日光/燭光鍵、重疊帶自然出兩窗加權中間色（髒紫棕）——石頭是被動濾鏡，每個
+     區域的顏色＝照到它的光譜×透射窗。寬羽化＝實石內部散射抹柔邊界，銳圓是假的 */
+  float poolW=(1.0-smoothstep(0.35,1.15,length(p-uFlashPos)))*uFlashAmt;
+  float warmW=max(uWarm,poolW);
+  vec4 wL=mix(vec4(0.40,0.80,1.50,1.35),vec4(2.10,1.00,0.38,0.85),warmW);
   T=(tR*wL.x*spectral(650.0)+tY*wL.y*spectral(583.0)
     +tG*wL.z*spectral(515.0)+tB*wL.w*spectral(455.0))*0.78;
+  T*=1.0+0.5*poolW; /* 束是多出來的光源：照到的區域變亮，不只變色 */
 #endif
 
   vec3 col=T*uBacklight*profile*vec3(0.94,0.97,1.0);
@@ -537,11 +550,16 @@ vec3 domeSample(vec3 P,vec3 I,vec3 nl,float ior){
   if(dot(rd,rd)<1e-4||rd.z>-0.03)return vec3(0.0); /* TIR/掠射：交給 Fresnel 邊 */
   float t=-P.z/rd.z;
   vec2 hit=P.xy+t*rd.xy;
+  /* [扁蛋面白殼修正] mesh xy 半徑 1.06 > 外形 ~0.95：高蛋面時邊緣折射把採樣點
+     彎回外形內；扁蛋面折射近直穿，外圈直接透視「外形外＝白光桌」＝寬灰白殼。
+     真蛋面材質連續到腰稜（沒有切片外形這回事）——出界採樣沿 SDF 拉回石緣 */
+  float sdH=shapeSD(hit);
+  if(sdH>-0.02)hit*=max(1.0-(sdH+0.02)/max(length(hit),1e-3),0.0);
   float pl=uThickness*(0.72+0.5*min(t,1.6)); /* 穿越蛋面的光程越長越濃＝果凍感 */
   float inside;
   vec3 c=sliceLinear(hit,rd,pl,inside);
   if(inside<0.5){float rr=dot(hit,hit);
-    c=vec3(0.92,0.96,1.0)*uBacklight*exp(-rr*0.55)*0.85;} /* 外形外＝透看光桌 */
+    c=vec3(0.92,0.96,1.0)*uBacklight*exp(-rr*0.55)*0.85;} /* 外形外＝透看光桌（拉回後幾乎不觸發，保險留著）*/
   return c;
 }
 
@@ -757,6 +775,11 @@ void main(){
      0.34→0.67）——反推螢幕比 0.55 需 pre-tonemap 0.18。判準是螢幕觀感不是線性值 */
   float prof=mix(0.18,1.25,corrG);
   prof*=1.0+0.18*sideW*(smoothstep(-0.35,0.35,ua)*2.0-1.0);
+  /* 手電筒束內＝多一個直射光源：絲光剖面的深陰影翼被束填亮（束外剖面照舊）——
+     否則翼的 ×0.18 會把暖區壓成髒暗斑。gate 用表面座標近似（與 sliceLinear 的
+     折射取樣 pool 同半徑，視覺上連續）*/
+  float poolS=(1.0-smoothstep(0.35,1.15,length(vPos.xy-uFlashPos)))*uFlashAmt;
+  prof=mix(prof,max(prof,1.05),poolS);
   col*=mix(1.0,prof,eyeK);
   /* 邊緣壓暗＝放射狀 fresnel（沿輪廓一圈往內），禁止任何直線 */
   col*=1.0-0.30*smoothstep(0.78,1.00,length(vWorldPos.xy)/1.06);
@@ -829,7 +852,8 @@ void main(){
 const TABLE_FRAG=`
 precision highp float;
 varying vec2 vUv;
-uniform float uBacklight,uTime;
+uniform float uBacklight,uTime,uFlashAmt;
+uniform vec2 uFlashW;
 uniform vec3 uGlowColor;
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
 float vnoise(vec2 q){vec2 i=floor(q),f=fract(q);f=f*f*(3.0-2.0*f);
@@ -843,6 +867,8 @@ void main(){
   float dust=vnoise(p*2.4)*0.05;
   vec3 base=mix(vec3(0.90,0.95,1.0),uGlowColor,0.12);
   vec3 col=(disc+halo)*(0.92+dust)*uBacklight*base;
+  /* 手電筒暖束落在光桌上的溢光（亞歷混色打光）：有界 pool，束外精確歸零＝不生灰霧 */
+  col+=(1.0-smoothstep(0.55,1.55,length(p-uFlashW)))*uFlashAmt*vec3(0.85,0.32,0.10)*0.55;
   col=col/(1.0+col);
   col=pow(col,vec3(0.4545));
   col+=(hash(gl_FragCoord.xy)-0.5)*0.008; /* dither 破 8-bit banding */
@@ -880,9 +906,11 @@ const CAM_BASE=new THREE.Vector3(0,-0.78,3.5);
 function makeCommonUniforms(){return{
   uBacklight:{value:1},uThickness:{value:1},uTilt:{value:0},uTime:{value:0},
   uFrontLight:{value:0.6},uKeyDir:{value:new THREE.Vector3(-0.35,0.45,0.82)},
+  uFlashPos:{value:new THREE.Vector2(0,0)},uFlashAmt:{value:0},
   uInvRot:{value:new THREE.Matrix3()}};}
 
-const tableUniforms={uBacklight:{value:1},uTime:{value:0},uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)}};
+const tableUniforms={uBacklight:{value:1},uTime:{value:0},uGlowColor:{value:new THREE.Color(0.6,0.7,0.9)},
+  uFlashW:{value:new THREE.Vector2(0,0)},uFlashAmt:{value:0}};
 const table=new THREE.Mesh(new THREE.PlaneGeometry(30,30),
   new THREE.ShaderMaterial({vertexShader:VERT,fragmentShader:TABLE_FRAG,uniforms:tableUniforms}));
 /* z=-0.8：切片傾斜 ±40° 時 z 最低到 -0.71，要留在光桌前面（踩過：-0.05 會把下半片深度裁掉）*/
@@ -1005,8 +1033,8 @@ canvas.addEventListener('pointermove',e=>{
   const dx=e.clientX-prev.x,dy=e.clientY-prev.y;
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pts.size===1){
-    /* 手電筒開啟時（限星石）：單指拖＝移光不轉石【AI 代決可改】；桌面拖曳照常轉石 */
-    if(!(state.flash&&state.sliceId==='star'&&IS_TOUCH)){
+    /* 手電筒開啟時（星石/亞歷）：單指拖＝移光不轉石【AI 代決可改】；桌面拖曳照常轉石 */
+    if(!(state.flash&&(state.sliceId==='star'||state.sliceId==='alex')&&IS_TOUCH)){
       state.spinT+=dx*0.011;
       state.tiltT=Math.max(-TILT_MAX,Math.min(TILT_MAX,state.tiltT+dy*0.008));
     }
@@ -1032,6 +1060,7 @@ function curSlice(){return SLICES.find(s=>s.id===state.sliceId);}
 
 function buildChips(){
   $('chips').innerHTML='';
+  $('chips').className=UI_LANG==='en'?'en':'';
   SLICES.forEach(s=>{
     const b=document.createElement('button');b.className='chip'+(s.id===state.sliceId?' on':'');
     b.textContent=tx(s.name,s.nameEn);
@@ -1102,8 +1131,8 @@ function applyDome(){
   /* 前光只作用在蛋面 shader，平面檢視時藏掉 */
   $('frontRow').style.display=on?'flex':'none';
   $('keyFollowRow').style.display=on?'flex':'none';
-  /* 手電筒模式【人類決】限星石 */
-  $('flashRow').style.display=(on&&state.sliceId==='star')?'flex':'none';
+  /* 手電筒模式【人類決】：星石＝移動反射光源；亞歷＝暖束混色打光（v5）*/
+  $('flashRow').style.display=(on&&(state.sliceId==='star'||state.sliceId==='alex'))?'flex':'none';
   /* 日光/燭光兩鍵：限亞歷（平面/蛋面都吃變色，只看 sliceId）*/
   $('lightSrcRow').style.display=state.sliceId==='alex'?'flex':'none';
   $('domeChk').checked=state.dome;
@@ -1229,6 +1258,7 @@ const MODES=[{id:'lightTable',update(dt){}}];
 const _q1=new THREE.Quaternion(),_q2=new THREE.Quaternion(),_m4=new THREE.Matrix4();
 const AXIS_X=new THREE.Vector3(1,0,0),AXIS_Z=new THREE.Vector3(0,0,1);
 const _keyW=new THREE.Vector3(),KEY_FIXED=new THREE.Vector3(-0.35,0.45,0.82).normalize();
+const _v3a=new THREE.Vector3(),_v3b=new THREE.Vector3();
 let _vw=0,_vh=0,_fitK=1;
 function onResize(){
   const w=window.innerWidth,h=window.innerHeight;
@@ -1278,6 +1308,22 @@ function animate(now){
   else if(state.keyFollow){_keyW.copy(camera.position).normalize();_keyW.y+=1.25;_keyW.normalize();}
   else _keyW.copy(KEY_FIXED);
   mat.uniforms.uKeyDir.value.copy(_keyW);
+  /* 亞歷混色手電筒：游標＝暖束（白熾筆燈）在切片平面上的落點。束內紅窗贏、
+     束外跟日光/燭光鍵——「變色不在石頭裡，在光源裡」的可玩版。
+     前光方向不跟束走【AI 代決可改】：束只換光譜與亮度，眼線仍由環境前光定位 */
+  if(state.flash&&state.sliceId==='alex'&&dome.visible){
+    _v3a.set(_ptrX,_ptrY,0.5).unproject(camera).sub(camera.position);
+    _v3b.set(0,0,1).applyQuaternion(sliceGroup.quaternion);   /* 切片平面法線（世界）*/
+    const dn=_v3a.dot(_v3b);
+    if(Math.abs(dn)>1e-4){
+      const tHit=-camera.position.dot(_v3b)/dn;
+      _v3a.multiplyScalar(tHit).add(camera.position);          /* 世界落點（平面過原點）*/
+      tableUniforms.uFlashW.value.set(_v3a.x,_v3a.y);
+      _v3a.applyQuaternion(_q1);                               /* _q1 此刻＝群組逆旋轉 */
+      mat.uniforms.uFlashPos.value.set(_v3a.x,_v3a.y);
+    }
+    mat.uniforms.uFlashAmt.value=1;tableUniforms.uFlashAmt.value=1;
+  }else{mat.uniforms.uFlashAmt.value=0;tableUniforms.uFlashAmt.value=0;}
   mat.uniforms.uFrontLight.value=state.frontLight;
   tableUniforms.uBacklight.value=state.backlight;
   tableUniforms.uTime.value=now*0.001;

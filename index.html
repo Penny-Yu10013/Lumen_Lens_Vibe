@@ -267,10 +267,11 @@ const SLICES=[
    line:'Cr³⁺ 開了兩扇透射窗——日光下藍綠窗贏、燭光下紅窗贏；單方向絲光再劃一條貓眼。變色不在石頭裡，在光源裡。',
    lineEn:'Cr³⁺ opens two transmission windows — daylight favours blue-green, candlelight red. One set of silk draws a single cat’s-eye. The colour change lives in the light, not the stone.',
    define:'SLICE_ALEX', glow:[0.25,0.65,0.55], dome:true,
-   uniforms:{uMilk:1.0,uAlexEye:0.9,uWarm:0,uRimGlow:0.6,uThickness:1.2},
+   uniforms:{uMilk:1.0,uAlexEye:0.9,uAlexSharp:1.0,uWarm:0,uRimGlow:0.6,uThickness:1.2},
    sliders:[
      {k:'uMilk',zh:'絲光濃度',en:'Silk density',min:.3,max:2,step:.05},
      {k:'uAlexEye',zh:'貓眼強度',en:'Eye intensity',min:0,max:1.5,step:.05},
+     {k:'uAlexSharp',zh:'眼線銳利度',en:'Eye sharpness',min:.4,max:2.2,step:.05},
      {k:'uRimGlow',zh:'輪廓光暈',en:'Rim glow',min:0,max:1.5,step:.05},
      {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.4,max:2,step:.05}]},
  { id:'liddicoatite',
@@ -320,7 +321,7 @@ uniform float uBandDensity,uD0,uDGrad,uIrisGain;
 uniform float uIor,uDisp,uDispStr,uDomeH,uFrontLight;
 uniform float uCatEye,uCrackAmt,uCrackSpread,uCoreSize;
 uniform float uMilk,uZoneAmt,uStarInt,uStarTint,uStarSharp;
-uniform float uAlexEye,uWarm,uRimGlow;
+uniform float uAlexEye,uAlexSharp,uWarm,uRimGlow;
 uniform vec3 uGlowColor3,uKeyDir;
 
 float hash(vec2 q){return fract(sin(dot(q,vec2(127.1,311.7)))*43758.5453);}
@@ -682,7 +683,10 @@ void main(){
 #endif
   vec3 front=(halo*1.35+pow(ndh,9.0)*0.03+pow(ndh,240.0)*0.55)*uFrontLight*vec3(0.93,0.96,1.0);
 #ifdef SLICE_ALEX
-  front*=0.22; /* 貓眼不出曝光點（批改）：通用 sheen/spec 壓到微量，亮度只從眼線出來 */
+  /* v4 頭燈根除：0.22 倍壓不掉——pow240 鏡面點（spec＋front 各一顆）落在眼線上段
+     聚成獨立白球。鏡面點是星石的規格，亞歷的光只有一條線：整項砍零 */
+  spec=0.0;
+  front=vec3(0.0);
 #endif
   float rimGlow=pow(1.0-ndi,2.6);
   /* 球體素描形體陰影（用戶紫圈）：透射體隨面轉離視線壓暗＝外環暗帶；
@@ -736,28 +740,40 @@ void main(){
 #endif
 #ifdef SLICE_ALEX
   /* [貓眼] 金綠玉單方向纖維＝單帶（星石機制的單方向版，科研報告 §3）。
-     v2 批改三項：雙層帶／縱向調變／milk & honey 分側——「眼銳、暈柔、兩側一亮一暗、邊緣沉下去」*/
+     v4 批改三項：頭燈根除（spec/front 砍零，見上）／眼暈變色（暈＝體色乳光）／
+     亮度剖面重做（|ua| 走廊剖面：核心線→乳光走廊→深陰影翼）*/
   vec3 uA=nl-H*dot(nl,H);
   float ua=uA.x;
   float hemiA=smoothstep(0.0,0.22,dot(nl,H)); /* 受光半球 gate（同星石：殺反位鬼影帶）*/
-  /* milk & honey v3（批改重做）：分側與帶用**同一個 ua**（帶的 signed distance）；
-     光側符號＝keyL.x（每幀常數）——舊版用每像素 H.x，符號翻轉線變成直線弦切
-     「雙色皮球」（踩過，批改抓到）。寬過渡＝帶寬 3–5 倍（≈半徑 30%）；
-     對比降檔 1.2/0.8【批改：分界貼線是主菜，對比是配菜，做對再往回加】 */
-  float sideF=smoothstep(-0.30,0.30,ua*(keyL.x>=0.0?1.0:-1.0));
-  col*=mix(0.80,1.20,sideF);
+  float eyeK=min(uAlexEye,1.0);
+  /* [v4 剖面] 亮度＝|ua| 的函數（跟眼線同一座標）＋光側偏移，全 smooth 無直線分界：
+     乳光走廊（|ua| 到蛋面半徑約 40% 平滑衰減）提亮、深陰影翼兩側壓到 ×0.5–0.65。
+     milk & honey＝整個剖面往光源側平移＋光側翼偏亮（keyL.x 每幀常數——每像素 H.x
+     會生直線弦切雙色皮球，踩過）；正面光 keyL.x≈0 → 左右對稱＝物理正確，維持 */
+  float sideW=clamp(keyL.x*1.7,-1.0,1.0);
+  float uaP=ua-0.09*sideW;
+  float corrG=exp(-uaP*uaP*7.0);
+  /* 翼底 0.18：tonemap col/(1+col)＋gamma 吃對比極兇（probe 實測：0.58→螢幕 0.73、
+     0.34→0.67）——反推螢幕比 0.55 需 pre-tonemap 0.18。判準是螢幕觀感不是線性值 */
+  float prof=mix(0.18,1.25,corrG);
+  prof*=1.0+0.18*sideW*(smoothstep(-0.35,0.35,ua)*2.0-1.0);
+  col*=mix(1.0,prof,eyeK);
   /* 邊緣壓暗＝放射狀 fresnel（沿輪廓一圈往內），禁止任何直線 */
   col*=1.0-0.30*smoothstep(0.78,1.00,length(vWorldPos.xy)/1.06);
-  /* 雙層帶：核心線（窄 ×2 冷白）＋外暈（寬 ×0.38 柔）；
-     縱向低頻調變（0.7–1.0）＋中亮兩端衰減＝殺掉均勻日光燈管感 */
+  /* [v4 眼暈變色] 暈＝體色×提亮的乳光，不是白色疊加：取 trans 色度混微量白 →
+     日光綠乳／燭光粉乳自動跟 uWarm 換；只有核心線保持 near-white */
+  vec3 bodyT=trans/max(max(trans.r,max(trans.g,trans.b)),1e-3);
+  vec3 haloC=mix(bodyT,vec3(1.0),0.25);
+  col+=corrG*bodyT*0.10*(0.15+0.85*uFrontLight)*eyeK; /* 走廊染色乳光＝體色提亮 */
+  /* 雙層帶：核心線（窄 near-white）＋外暈（寬 柔 體色乳光）；縱向低頻調變＝沿線
+     均勻呼吸，線上不允許局部亮團（v4 判準）。uAlexSharp 縮放帶指數（同星石規格）*/
+  float KA=uAlexSharp*uAlexSharp;
   float lenM=(0.70+0.30*vnoise(vec2(vPos.y*2.0,7.7)))*(0.72+0.28*exp(-vPos.y*vPos.y*1.3));
-  float bandCore=exp(-ua*ua*45000.0)*2.0;
-  float bandHalo=exp(-ua*ua*600.0)*0.38;
+  float bandCore=exp(-ua*ua*45000.0*KA)*2.0;
+  float bandHalo=exp(-ua*ua*600.0*KA)*0.38;
   float taperA=exp(-dot(uA,uA)*6.0);
   float silkA=0.85+0.15*vnoise(vec2(vPos.y*40.0,vPos.x*7.0));
-  vec3 eyeC=mix(vec3(0.95,0.92,0.78),vec3(1.0,0.85,0.62),uWarm);
-  /* 曝光點已拆除【用戶批改：貓眼不會有中心光點——那是星石的特徵，亞歷只有帶】 */
-  col+=(bandCore*mix(vec3(1.0),eyeC,0.35)+bandHalo*eyeC)*lenM*taperA*silkA*hemiA*uAlexEye*(0.10+1.15*uFrontLight);
+  col+=(bandCore*mix(vec3(1.0),haloC,0.18)+bandHalo*haloC)*lenM*taperA*silkA*hemiA*uAlexEye*(0.10+1.15*uFrontLight);
 #endif
 #ifdef SLICE_TRAPICHE
   /* [透射貓眼]（A 路線，科研報告 §4-bis「大衛之星」）：徑向直位錯束把穿石背光

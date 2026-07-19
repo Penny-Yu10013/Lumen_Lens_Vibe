@@ -592,23 +592,28 @@ vec3 wallOD(vec3 P,vec3 rd,float tSeg,float pl){
     float sheath=(1.0-smoothstep(0.0,0.02,abs(dq-w)))*smoothstep(0.10,0.35,rq);
     od+=sheath*uEnrich*1.6*min(0.06/max(abs(dn),0.03),tSeg)/tN; /* 邊界富集薄鞘 */
   }
-  /* 海星蓋：貼著頂面的六爪星形「表層」（近入射點採樣，厚度感靠 od 常數）——
-     俯視＝六爪往外抓的完整海星；斜視＝只在頂點附近的暗蓋。
-     不能做成貫穿全深的牆板加寬：側視會變成中段大寬翼（踩過） */
+  /* 海星蓋 v6（用戶批改：散狀陰影突兀——參考圖的中心深色是「實體」且不規則）：
+     寬羽化徑向淡出（0.28–0.42）＝瀰散陰影感的根源，改 fbm 不規則外緣＋窄羽化＋
+     密度拉高＝實體碳質團的爪。近入射點採樣（表層）維持——貫穿全深會變中段大寬翼（踩過）*/
   vec3 qs=P+rd*min(0.16*tSeg,0.35);
   float rqS=length(qs.xy);
-  float aS=abs(mod(atan(qs.y,qs.x),PI/3.0)-PI/6.0);
+  float thQ=atan(qs.y,qs.x);
+  float aS=abs(mod(thQ,PI/3.0)-PI/6.0);
   float sS=aS*max(rqS,0.001);
-  /* 縮小＋柔邊（v3.3 用戶回報：星太張牙舞爪，跟溝斑疊在一起像失敗的花瓣）*/
   float wS=uArmWidth*0.5+(0.035+0.5*uArmWidth)*(1.0-smoothstep(0.05,0.34,rqS));
-  float covS=(1.0-smoothstep(wS*0.75,wS*1.5+0.015,sS))*(1.0-smoothstep(0.28,0.42,rqS));
+  float irrS=fbm(vec2(thQ*2.4,rqS*3.0)+vec2(7.7,1.3));
+  float extS=uCoreSize*(1.45+1.6*irrS);            /* 不規則外緣：核徑 1.4–3 倍的爪 */
+  float covS=(1.0-smoothstep(wS*0.8,wS*1.35+0.012,sS))*(1.0-smoothstep(extS*0.80,extS,rqS));
   /* 蜂巢窗：星蓋在六角核正上方稍微讓開，hex 壁（hexRim）才讀得出蜂巢結構 */
   vec2 e2S=vec2(0.5,0.8660),e3S=vec2(-0.5,0.8660);
   float dHexS=max(abs(qs.x),max(abs(dot(qs.xy,e2S)),abs(dot(qs.xy,e3S))));
-  covS*=1.0-0.55*(1.0-smoothstep(uCoreSize*0.45,uCoreSize*0.80,dHexS));
-  od+=covS*uArmDensity*0.45;
+  covS*=1.0-0.45*(1.0-smoothstep(uCoreSize*0.45,uCoreSize*0.80,dHexS));
+  od+=covS*(uArmDensity*0.9+0.9);
   /* 六壁頂面邊界（用戶紅六角；科研報告 §5）：頂點處銳利 hex 輪廓線，表層採樣 */
   od+=(1.0-smoothstep(0.010,0.028,abs(dHexS-uCoreSize*0.95)))*1.5;
+  /* [核凸出 v6] 平台面本體：hex 內表層直接吸收＝柱頂碳質 basal 面貼著蛋面表面，
+     任何視角都讀得到「核到頂」——配合 main() 的法線壓平＋斜面環＝凸出的柱頂平台 */
+  od+=(1.0-smoothstep(uCoreSize*0.78,uCoreSize*0.95,dHexS))*0.85;
   /* 六角核柱＝蜂巢：hex 壁比內部濃（hexRim），內部吸收偏「透深綠」不是死黑；
      垂直明暗（用戶錨點：背光標本頂暗、底透半透深色）＝depthW 隨 z 平方拉開 */
   float rl=max(dot(rd.xy,rd.xy),1e-5);
@@ -659,6 +664,15 @@ void main(){
   /* 臂＝縫隙生長的碳質實體＝消光體（用戶+礦物學）：反光項在臂上幾乎全滅，
      只留 V 溝暗痕。0.82 不是 0.35——亮壁玻璃管感的來源就是這裡留太多 */
   grooveAO=1.0-inG*0.82;
+  /* [核凸出 v6] 用戶批改：核柱要凸出/到達頂面，不是懸在蛋面裡。表面 hex 內
+     法線壓平成 basal 頂面＋hex 邊緣斜面環＝六角柱頂在蛋面上開出平台（科研報告
+     §5 頂面交線的立體版）。只動 nl（反光層），nl0 折射不動——法線雙軌制 */
+  vec2 e2V=vec2(0.5,0.8660),e3V=vec2(-0.5,0.8660);
+  float dHexV=max(abs(vPos.x),max(abs(dot(vPos.xy,e2V)),abs(dot(vPos.xy,e3V))));
+  float inHexV=1.0-smoothstep(uCoreSize*0.85,uCoreSize*1.0,dHexV);
+  float bevV=1.0-smoothstep(0.0,0.055,abs(dHexV-uCoreSize*0.97));
+  vec3 outV=vec3(vPos.xy/max(length(vPos.xy),1e-3),0.0);
+  nl=normalize(mix(nl,vec3(0.0,0.0,1.0),inHexV*0.85)+outV*bevV*0.40);
 #endif
   float ndi=max(dot(-I,nl0),0.0);
   float F=0.045+0.955*pow(1.0-ndi,5.0);
@@ -818,7 +832,9 @@ void main(){
     float eye=exp(-aE*aE*1400.0)+0.45*exp(-aE*aE*110.0); /* 尖銳眼線＋柔暈（原文「尖銳」）*/
     float radGate=smoothstep(0.10,0.22,rS)*(1.0-smoothstep(0.88,1.04,rS));
     float silk=0.86+0.14*vnoise(vec2(dot(vPos.xy,vec2(-fT.y,fT.x))*22.0,secK*7.3));
-    col+=eye*radGate*silk*uCatEye*trans.g*4.0*vec3(0.72,1.0,0.85)*form; /* 錨點的眼接近爆白，增益要敢給 */
+    /* 眼色改深綠（用戶批改：背光下六角生長面底色＝亮綠不是白——垂直視角六眼
+       在核周收斂，淡薄荷白常數會把中心洗成白霧；亮度不動只換色度）*/
+    col+=eye*radGate*silk*uCatEye*trans.g*4.0*vec3(0.30,1.0,0.52)*form;
   }
   /* [祕密花園] 裂隙碎光（用戶：微裂痕吃前光局部提亮即可，不建包裹體模型）：
      連續噪聲擾動出「裂面法線」，前光掃到反射角的裂面亮起＝碎光隨拖曳游走 */

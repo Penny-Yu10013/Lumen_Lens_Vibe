@@ -2,6 +2,7 @@
 
 > 給未來 session：這是**目前實作狀態**的交接。原始提案在 `Lumen_Lens_Vibe提案表.md`（不要改，當願景參考）。
 > 前作（架構複用來源）：`C:\Users\yu2_7\Downloads\isekai_gemcraft_claude\`（v1=切割幾何；本作 v2=內部結構與光學現象）。
+> 本檔是總表，標本交接檔在 `docs/handoff/`，開工流程見第 7 節。
 
 ---
 
@@ -19,6 +20,7 @@
 - **Claude Code 自動驗證**：`.claude/launch.json` 有 `lumenlens`（python http.server, port 8737）→ preview 工具開 `http://localhost:8737`。
   - **Browser pane 若 hidden（截圖逾時、rAF 停擺）**：改用 headless Chrome 截圖（批次腳本模板在 session scratchpad `shoot.ps1`，要點：每張獨立 `--user-data-dir`、45s 逾時 kill、**`--virtual-time-budget=1500` 別調高**——SwiftShader 下 rAF 會連跑 budget÷16ms 幀，iris shader 最慢，5000 會爆 45s；`#maxframes=N` 停 rAF 的方案不可行，headless compositor 會把停掉的 canvas 變黑）。逾時是隨機的，重試即可。
   - **數值驗證**：`#debug` 下有 `window.__ll`（renderer/scene/state/sliceMats + `probe([[x,y],..])` 同步 render+readPixels），Browser pane 隱藏也能用，比截圖快，適合「哪個 mesh 沒畫/顏色對不對」。
+  - 蛋面驗證見 `docs/handoff/dome-shared.md`。
 - **狀態直達 URL**（hash 參數，自動驗證核心）：
   `#debug&slice=iris&tilt=25&spin=40&backlight=1.2&zoom=1.1`
   - `debug`＝左上 fps overlay＋每 5 秒 console `[fps]`；`shot`＝隱藏全部 UI（宣傳截圖/錄屏）；`auto`＝傾角自動正弦掃＋緩慢自旋（錄屏用）
@@ -39,12 +41,7 @@
 
 ## 3. Iris 繞射彩虹（本作技術核心）
 
-光柵方程近似：`λ = d_eff(r)·|sv|`，`sv = dot(帶法向, vLocal.xy)`。
-- `d_eff = uD0·(1 + uDGrad·(r-0.5) + 0.15·fbm)` **沿半徑漸變** → 同傾角不同半徑不同 λ = 彩虹梯度帶，傾角變 → 整帶沿半徑平移 =「掃過」。
-- 相機基礎視角 `REST_ANGLE≈13°`，tilt=0 時 λ 落在紫外 → 無彩虹；傾 10–35° 掃過可見光。
-- λ→RGB：三峰 Gaussian `spectral()`（出可見光自動熄滅）＋ m=2 級 `spectral(λ/2)×0.3`。
-- **防油膜感四道收斂**：只在細帶區（gate）／色相沿帶法向有序漸變不隨機染斑／去飽和 mix 0.30＋uIrisGain 壓暗／單視角只出窄段光譜。
-- 調參對照 `參考圖\` 錨點照（規格見該資料夾 README）。
+→ `docs/handoff/iris.md`
 
 ## 4. 程式地圖（index.html 內用 [SEC:xxx] 註解區段劃界，Grep 定位）
 
@@ -61,17 +58,8 @@
 | fps 哨兵/debug HUD | `[SEC:FPS]`（<45fps 連續 3 秒：先關玻璃、再降 pixelRatio 1.5） |
 | 光暈染 UI 的顏色 | `[SEC:GLOWCOLOR]`（Iris 傾斜時 JS 端 `spectralJS` 跟 shader 同步光譜色） |
 | P1/P2 擴充 | `[SEC:MODES]`（P1 星石=註冊新模式；P2=獨立 `octahedron.html`） |
-| 蛋面（M9a） | `[SEC:GLSL]` 的 `#ifdef DOME` 區塊（`domeSample`；橢球 a=b=1.06 固定、c=`uDomeH` 可調）＋`[SEC:SCENE]` `domeGeo`/`applyDomeH`（高度滑桿=CPU 頂點重縮放+uniform，非每幀）/`domeMats`/`sliceGroup`＋`[SEC:UI]` `applyDome`/`domeSupported`/色散+高度滑桿（buildSliders 尾段）；SLICES 加 `dome:true` 即支援新切片 |
-| 蛋面色散 | `uDispStr`（藝術誇張量，物理 Δn 在蛋面尺度 <1px 不可見）＋`uDisp` 開關（哨兵第一段降級；hash `disp=0`） |
-| 透射貓眼（trapiche 蛋面限定） | DOME 尾段 `#ifdef SLICE_TRAPICHE`：**透射現象不是反光**（科研報告 §4-bis 大衛之星）——徑向位錯束散射穿石背光，眼線＝零跡線 `aE=dot(rdn.xy,fT)+dot(LiE,fT)`（折射視線＋光桌點光扇；**平行光假設會讓零跡線塌在圓心**，踩過）。銳線＋柔暈雙 Gaussian×增益 4.0；亮度載體 `trans.g`＝臂切開六眼/背光驅動/前光無關全免費。`uCatEye` 滑桿（hash `cat=`）；**LiE 係數 0.19＝眼線半徑，probe 校準過別憑感覺調**。反射貓眼已拆除勿復活。臂消光＝`grooveAO` 0.82（碳質縫隙=光陷阱，亮壁玻璃管感的根源）。同段後面＝裂隙碎光（前光×uCrackAmt/uCrackSpread，hash `crack=`） |
-| 核心尺寸/型態（trapiche 蛋面） | `uCoreSize` 滑桿（0.06–0.28）＝等效選切位（核是錐形），wallOD 的 hex 常數全掛鉤；頂點六壁邊界＝表層 hex 輪廓線（@ uCoreSize*0.95）；臂緣銳利度綁 uEnrich（edgeK）；B 型外緣碳質暗邊（sliceLinear rimC × uEnrich）。科研依據＝`達碧茲晶體_科研報告.md`（gitignore） |
-| 六臂 V 溝（trapiche 蛋面限定） | DOME 區塊開頭 `#ifdef SLICE_TRAPICHE` V 溝層：法線沿垂直臂軸切向倒向兩壁（帶號弧距 `sG` 定側、溝寬跟 `uArmWidth`）＋`grooveAO` 壓暗反射項。**v6.1 去玻璃感**（用戶：高蛋面斜視像玻璃仿製品）：AO 蓋全溝含兩壁（`smoothstep(wG*1.15,wG*2.0)`——舊版只蓋溝心 inG，壁上 spec/refl 掃出寬亮帶＝玻璃管真兇）＋溝內法線高頻 vnoise 抖動 ×0.22（磨砂化，碳質縫隙不是拋光面）＋gAmp 0.55→0.38。**法線雙軌制（架構決定，別改回去）**：`nl0`=乾淨橢球法線餵折射/domeSample/wallOD/Fresnel/形體陰影，`nl`=溝擾動後**只餵反光層**（spec/halo/前光/貓眼/AO）——溝若扭曲折射，臂會被抹成閃電折線或花瓣暗斑（兩輪用戶回報的總根源） |
-| 球面形體陰影（蛋面） | DOME 主函數 `form`（mix 0.26–1 × smoothstep(ndi 0.10–0.44)）只乘透射體＝外環暗帶（球體素描）；Fresnel 反光/rim glow/前光弧不吃 form（【人類決】最外環反光保留）。後接**邊緣濕亮線**：`pow(1-ndi,14)`×背光＝拋光腰稜細高光弧，不吃 grooveAO（拋光面連續，亮線越過臂端） |
-| 實體六壁＋核柱（trapiche 蛋面限定） | `wallOD`（domeSample 後面）：蛋面下臂/富集/核**不畫底面**（sliceLinear 內 `#ifndef DOME` 守衛），改對折射線解析求交積分——3 條垂直牆板＋海星蓋（近入射點採樣的頂面表層，俯視=六爪星、斜視=頂點暗蓋；**不能做成全深牆板加寬**＝側視大寬翼）＋六角蜂巢核柱（hexRim 壁濃內部淡＋`depthW` 垂直漸層頂暗底透＋吸收色透綠不透紅藍＝深處墨綠）。**結構性圖案必須體積化**：底面採樣會被 V 溝折射踢成閃電形轉折（踩過）；質地性圖案（花園霧/生長紋）留底面沒事。牆積分只用主波長算一次；臂不能吃單點 z 權重（垂直視線 tj 退化會單邊變暗，踩過）。**v6 批改三件**：①海星蓋實體化＝fbm 不規則外緣（extS＝核徑 1.4–3 倍）＋窄羽化＋密度 `uArmDensity*0.9+0.9`——寬羽化徑向淡出（0.28–0.42）＝「散狀陰影突兀」的根源，參考圖中心深色是實體碳質；②核凸出＝三件套：wallOD 表層 hex 平台吸收（dHexS<0.95 核徑 ×0.85）＋main() 表面 hex 內法線壓平成 basal 面（inHexV×0.85）＋hex 邊斜面環（bevV×0.40，只動 nl 雙軌制）＝柱頂在蛋面開平台任何視角讀得到；③透射眼色 `vec3(0.30,1.0,0.52)` 深綠——垂直視角六眼在核周收斂，舊淡薄荷白 (0.72,1.0,0.85) 會把中心洗成白霧（用戶：生長面底色＝亮綠不是白） |
-| 星光藍寶（P1，id:'star'） | 本體＝sliceLinear `#ifdef SLICE_STAR`（乳藍剛玉：uMilk 乳霧＋uZoneAmt 六方環帶＋吸紅透藍 sigma）；星光＝DOME 尾段 `#ifdef SLICE_STAR`：三組針方向**局部座標常數**（自旋星臂自動跟轉）、`u=nl−H·dot(nl,H)`（反射點 u=0＝光動星動）、帶k=exp(−dot(u,fk)²·1600)⊥fk 過星心、三帶交會＝六芒星＋taper＋星心乳暈；強度＝uStarInt×前光（**反射光路**，與達碧茲透射相反）。**色系滑桿 uStarTint**（0藍→0.34紫→0.67紅寶→1黑星；黑星端星線自動轉古銅金＝赤鐵礦絲）＋**星線銳利度 uStarSharp**（縮放帶指數，1=用戶認可預設）。**手電筒模式**【人類決 C 案】：`state.flash`＋`_ptrX/_ptrY`（canvas pointermove 永遠追蹤）→ 主迴圈 uKeyDir=游標方向（優先序：手電筒＞跟隨＞固定）；桌面 hover 移光拖曳轉石、**觸控單指拖=移光不轉石【AI 代決可改】**；hash `flash=1`、localStorage `lumenlens.flash`、`#flashRow` 星石/亞歷顯示（v5 起亞歷＝暖束混色，見亞歷 row）。科研依據＝`星光藍寶石_科研報告.md`（gitignore）。達碧茲專屬 dome 滑桿已 gate（buildSliders `if(s.id==='trapiche')`） |
-| 亞歷山大貓眼（id:'alex'） | 本體＝sliceLinear `#ifdef SLICE_ALEX`：**Cr³⁺ 雙透射窗必須分 4 頻帶採樣**（650/583/515/455 過 `spectral()` 合成——RGB 三通道塞不下「紅綠都透、黃吸收」）；吸收固定、光源權重 `uWarm` 0/1 切換（日光/燭光**兩鍵瞬切不做滑桿**【人類決】，`#lightSrcRow` 限 alex 顯示，hash `warm=1`）；光源權重差距要敢拉、燭光藍端補超物理量才會紫紅不橘棕（踩過兩輪）。貓眼＝DOME `#ifdef SLICE_ALEX`，v4 批改後＝**|ua| 走廊剖面**（跟眼線同座標：核心線→乳光走廊 corrG=exp(−uaP²·7)→深陰影翼；`prof=mix(0.18,1.25,corrG)`——**翼底 0.18 是 tonemap 反推值**，col/(1+col)+gamma 吃對比極兇（0.58 只剩螢幕比 0.73），要壓到螢幕比 0.55–0.6 得給 0.18，probe 校準過別用線性直覺調）＋**milk & honey＝剖面整體往光側平移 0.09＋光側翼 ±0.18 偏亮**（`sideW`＝clamp(keyL.x·1.7)，keyL.x **每幀常數**——每像素 H.x 會生直線弦切雙色皮球，踩過；正面光 keyL.x≈0 自動對稱）＋**眼暈變色**（暈色＝`haloC`＝trans 色度 `bodyT` 混 25% 白＝體色乳光，日光綠乳/燭光粉乳自動跟 uWarm；核心線 mix(white,haloC,0.18) near-white）＋走廊染色乳光加法項（corrG·bodyT·0.10）＋雙層帶（K45000/K600 × `uAlexSharp²` 眼線銳利度滑桿）＋縱向低頻調變＋放射狀邊緣壓暗＋受光半球 gate＋`eyeK=min(uAlexEye,1)` gate 整個剖面（eye=0 全滅）。**頭燈根除（v4）：alex 的 spec/front 整項＝0**——0.22 倍壓不掉，pow240 鏡面點（spec＋front 各一顆）在眼線上段聚成獨立白球；鏡面點是星石規格，亞歷的光只有一條線。**混色手電筒（v5，用戶 P 圖為準；v5.2 修燭光 bug）**＝游標筆燈束：sliceLinear 的 `poolW`（gate 0.35–1.15，寬羽化＝實石內部散射抹柔）逐像素替換光源權重，**束＝環境光的互補光源** `warmW=abs(uWarm-poolW)`（日光環境→白熾束紅窗、燭光環境→日光束綠窗；舊 max() 在燭光下束隱形＝用戶回報 bug）；桌面溢光束色同步互補（uFlashWarm：橘↔藍白）；重疊帶自動出兩窗加權中間色；`T*=1+0.5·poolW`（束是多的光源，變亮不只變色）＋DOME 端 `poolS` 把 v4 陰影翼填亮（不填會壓成髒暗斑）＋TABLE_FRAG `uFlashW` 桌面溢光（有界 pool 束外歸零不生灰霧）。JS＝主迴圈游標 ray∩切片平面（過原點，`_q1` 逆旋轉轉局部）餵 `uFlashPos`（局部）/`uFlashW`（世界）；前光方向不跟束走【AI 代決可改】。手電筒 UI 現為星石/亞歷共用（星石=移反射光源、亞歷=暖束）。絲光條紋振幅 0.08 別拉高（會變木紋珠）。科研依據＝`亞歷山大貓眼_科研報告.md`（gitignore） |
-| 蛋面光點/limb brightening（星石批改） | 星心＝真鏡面 `pow(dot(nl,H),320)`＋2 副點（**u 空間偏移 0.2/0.28、微偏離帶軸**——正壓臂上會被臂亮度吞掉、H 偏移太小會縮進主點，都踩過）；星帶 **max 不 sum**（交會不自加亮）；**受光半球 gate `hemiS`**（u 空間高斯不分 θ/180°−θ，反位半球會鬼影出對角線微光，踩過）。**limb brightening**＝`pow(1-ndi,6)`×光源方位遮罩×`uRimGlow`（fresnel 邊緣連續漸亮；**月牙/弧帶類貼片全禁**——「天使光環弧帶」在星石/亞歷已 `halo=0.0` 撤除，僅達碧茲保留） |
-| 前光（天使光環，蛋面限定） | DOME 區塊 `front` 項：**輪廓座標系弧帶**（`vWorldPos.xy` 半徑 0.50–0.84＋`uKeyDir` xy 投影方位 gate），**不是法線空間 lobe——扁蛋面上必糊成整片光帽（踩過兩輪）**。JS 每幀餵 `uKeyDir`：跟隨式＝相機方向 y+1.25、固定式＝(-0.35,0.45,0.82)。UI＝前光滑桿＋跟隨 checkbox（`[SEC:UI]`，蛋面模式才顯示）；hash `front=`/`keyfix=1`；localStorage `lumenlens.keyfollow` |
+| 蛋面通用（DOME/色散/前光/法線雙軌制…） | → `docs/handoff/dome-shared.md` |
+| 標本專屬 shader/滑桿 | → `docs/handoff/{trapiche,star,alex,liddi,iris}.md` |
 | 主迴圈/姿態/uniform 更新 | `[SEC:LOOP]` |
 | CSS：玻璃/LOGO/手機版 | `[SEC:CSS-GLASS]`/`[SEC:CSS-LOGO]`（LOGO SLOT 註解=可替換插槽）/`[SEC:CSS-MOBILE]` |
 
@@ -81,11 +69,17 @@
 - M6 UI/i18n 實作完成（`#lang=en` 驗證 hash 可用）
 - M7 直向自動退鏡頭（`_fitK`）已加；fps 哨兵/no-glass 降級已實作（`#debug` 下不自動降級）
 - M8：README/LICENSE/.gitignore 已建；OG 文案是【人類決】佔位；**尚未建 git repo/未推 Pages**（用戶 GitHub Desktop 操作）
-- **錨點照第一輪調參已做**（2026-07-16，用戶已丟 21 張參考圖進 `參考圖\` 含【參照】筆記）：trapiche=細臂/小六角核/濃郁祖母綠/秘密花園霧域/扇區明暗差；liddi=六方輪廓/粉色 Mercedes 星線/橄欖外圈/黑殼/新色序 palette；iris=乳白冷色體/琥珀 crust/玉髓核/帶振幅由內向外。**第二輪等用戶看成品後截圖標註再收斂**
+- **錨點照第一輪調參已做**（2026-07-16，用戶已丟 21 張參考圖進 `參考圖\` 含【參照】筆記）：各標本錨點清單在對應 handoff 檔。**第二輪等用戶看成品後截圖標註再收斂**
 - 星石×4、GIA×4 參考圖已在 `參考圖\`（P1/P2 開工直接用）
-- **M9a 蛋面完成兩輪**（2026-07-16）：v1=達碧茲半球折射（函數式真折射：橢球 refract→ray-plane 求交→重算圖案）＋三波長色散滑桿＋Fresnel/果凍 rim＋哨兵降級鏈（色散→玻璃→pixelRatio）。v2（v1 驗收未過補做）=**六扇區獨立貓眼絲光**（反光層，隨拖曳掃動，六道分開=硬驗收條件）＋**蛋面高度滑桿**（uDomeH 0.35–1.05 預設 0.72）＋色散上限 0.12。決策與技術脈絡見 `3D折射方向_討論稿.md`（已 gitignore，僅本機）。**v3**（2026-07-17，v2「大致完美，上修一點」的兩個修改點）＝六臂 V 溝立體化（法線擾動＋grooveAO）＋前光「天使光環」（輪廓座標系弧帶；【人類決】跟隨視角先行、固定燈位保留為面板選項）。v3 俯視角已獲用戶認可；**v3.1**＝臂/核體積化（`wallOD` 實體六壁＋頂點核柱，修大傾角閃電形轉折，用戶確認有進步）；**v3.2**＝中心結構上修（海星蓋＋六角蜂巢核＋垂直明暗頂暗底透墨綠，對照用戶背光標本照）；**v3.3**＝低參數水墨修正（臂邊緣改比例式，禁用固定 +0.03 常數）＋核柱增實（depthW 0.72–1.90）＋臂末端破圖修正（蛋面關磨邊亮線＋V 溝邊緣提早淡出）；**v3.4**＝法線雙軌制（V 溝退出折射路徑，根治花瓣/閃電類 artifact）＋海星縮小柔化＋球面形體陰影（外環暗帶、最外環反光保留）；**v3.5**＝貓眼改前光驅動＋帶形放寬＋裂隙碎光；**v3.6**（先科研再修改）＝`達碧茲晶體_科研報告.md`（gitignore，結論→shader 映射表）＋貓眼弧帶修正（lobe 22、獨立 uCatEye 滑桿與前光脫鉤）＋頂點六壁 hex 輪廓＋裂隙雙滑桿＋核尺寸滑桿（B↔C 偏 B）＋臂緣銳利綁富集＋外緣碳質暗邊。**v3.7**（用戶選 A 路線「遵循物理與礦物學」）＝透射貓眼（拆掉反射制；眼線=折射視線×光桌點光扇的散射零跡線，載體 trans.g）＋臂消光化（grooveAO 0.82）＋桌面面板限高可捲（滑桿多到頂不到背光的 bug）。v3.7 用戶驗收通過（達碧茲本體滿意）；**v3.8**＝核柱實體化（depthW 1.25–2.25＋內部加權、hex 壁對比壓低——垂直俯視 tc 夾底部拿到最低吸收＝幽靈空心感的根源）＋邊緣濕亮線＋形體陰影界線增強（用戶標本照紅/紫箭頭）。**v3.8 已推 GitHub Pages**。**P1 星光藍寶 v1 已實作**（2026-07-17，標本卡第二位；先科研：`星光藍寶石_科研報告.md`）：四行為驗證✓（星隨光走/自旋星臂跟轉/傾斜星平移/uStarInt 0 全滅）。星線預設粗細已獲用戶認可。**P1 v2**（同日）＝手電筒模式（C 案：toggle 並存，限星石）＋剛玉色系滑桿（藍/紫/星光紅寶/黑星，黑星金線）＋星線銳利度滑桿。**已推 GitHub Pages**。**P1 v3 星石批改**＝星心點狀化（鏡面反射點＋2 副點，非柔光帽）＋輪廓月牙光暈（uRimGlow 通用項）——四行為截圖驗證✓。**亞歷山大貓眼 v1 已實作**（標本卡第三位；先科研：`亞歷山大貓眼_科研報告.md`）：4 頻帶雙透射窗變色（日光/燭光兩鍵瞬切【人類決】）＋單帶貓眼＋點狀星心；行為全過、**體色飽和度偏粉彩待用戶批改**（解藥＝絲光濃度↑前光↓）。**P1 v4–v5＋亞歷 v2–v3**（用戶末輪批改全修完）：月牙真兇＝v3 天使光環弧帶（星石/亞歷撤除）、limb brightening 接手邊緣光；星心真鏡面點＋副點（u 空間 0.2/0.28 微偏帶軸）＋星帶 max＋受光半球 gate（殺對角線鬼影）；亞歷 milk&honey 統一 ua 座標系（keyL.x 定側，禁每像素 H.x）＋無中心光點。星石 v3–v5＋亞歷 v1–v3 已推 GitHub（commit 4180c4e）。**亞歷 v4**（2026-07-19，用戶三項批改）＝頭燈根除（spec/front 砍零）＋眼暈變色（暈＝體色乳光隨 uWarm 換）＋亮度剖面重做（|ua| 走廊剖面＋光側平移）＋眼線銳利度滑桿 uAlexSharp；probe 驗證全過（線上無亮團／日光綠乳燭光粉乳／翼走廊螢幕比 0.59／側光剖面平移／eye=0 全滅）；v4 用戶驗收通過已推（5bf2f8c）。**亞歷 v5 混色手電筒**（同日，用戶 P 圖需求）＝暖束局部光譜替換（束內紅窗/束外綠窗/寬羽化中間色）＋桌面溢光＋陰影翼束內填亮；星石手電筒迴歸 ✓；用戶驗收「大致上沒問題」。**v5.1 收尾兩修**（用戶標註）＝①扁蛋面白殼根除：dome mesh xy 半徑 1.06＞外形 ~0.95，低 uDomeH 折射近直穿、外圈透視「外形外＝白光桌」fallback＝寬灰白殼（每個蛋面都有）——`domeSample` 出界採樣沿 shapeSD 拉回石緣（材質延伸；預設高度 transect 迴歸零差異）；②EN chips 破版：300px 卡 5 顆英文長名 flex 均分 46px 必爆——`#chips.en` 3 欄網格＋10px 字級＋允許折行（規則放 CSS-MOBILE media query 後面蓋掉手機 nowrap），buildChips 依 UI_LANG 掛 class。已 commit+push。**達碧茲 v6**（2026-07-19，用戶 P 圖三批改：核凸出／海星蓋散狀→實體／中心白霧→亮綠；細節見程式地圖「實體六壁＋核柱」row）：俯視＝扇區亮綠到核邊＋實體黑碳團；高蛋面斜視＝核柱頂在頂點開六角平台。已 commit+push。陣容定位：達碧茲（生長結構）/星光（asterism）/李迪（色帶）/瑪瑙（繞射）/亞歷（chatoyancy+變色）＝五現象零重複。開發順序：達碧茲→星石→亞歷→李迪→瑪瑙（次序前三完成，剩李迪/瑪瑙切片組）。**完稿標準已立**：`完稿標準_光學標本.md`（gitignore 僅本機）＝後續光學標本案例（李迪蛋面/M9b 瑪瑙/P1 星光）的施工與驗收規範，開工先讀。M9b 瑪瑙厚牆/M9c 後處理/M9d 萬花筒未做（萬花筒緩議）。真機基準：桌機 53fps@pxr1.25（哨兵有降）、iPhone 60fps@pxr2 蛋面全開
+- 各標本（細節見 `docs/handoff/` 同名檔）：
+  - 達碧茲 trapiche：v6.1 已推；無待辦，只接批改
+  - 星光藍寶 star：P1 v5 已推；無待辦，待批改
+  - 亞歷 alex：v5.2 已推；無待辦，待批改
+  - 蛋面通用 dome-shared：v5.1 已推；真機基準在檔內
+  - 李迪 liddi：P0 薄切片已推；下一步厚牆（排瑪瑙後）
+  - 瑪瑙 iris：P0 薄切片已推；下一步 M9b 厚牆（順位第一）
+- M9b 瑪瑙厚牆/M9c 後處理/M9d 萬花筒未做（萬花筒緩議）。
 - 【人類決】Logo：用戶滿意現有 placeholder 方向，**將自繪正式視覺**，現在不動
-- **蛋面類 shader 的截圖驗證**：headless Chrome 會逾時（SwiftShader 扛不住），改走「隱藏分頁 pixelRatio 0.5 同步 render → canvas.toDataURL → fetch POST 到本機一次性 HttpListener（scratchpad `recv.ps1`，port 8766）→ Read jpg」
 - 【懸置】Logo 正式視覺（CSS placeholder 在跑）；OG 文案（README/index.html 有插槽註解）
 
 ## 6. 用戶背景備忘
@@ -94,3 +88,9 @@
 - Vibe 工作法：Code 全包並自動驗證；給選項 A/B/C 不要開放式問題；繁中、結論先講。
 - 推送用 GitHub Desktop GUI（不走 git CLI）；部署 GitHub Pages 純靜態。
 - 視覺類決策（鏡頭/構圖）永遠先問；用戶的參考圖是正式答案。
+
+## 7. 開工流程與順序
+
+1. 先讀本檔 → 2. 再讀當前標本的 `docs/handoff/xxx.md` → 3. 蛋面工作另讀 `dome-shared.md` → 4. 光學標本開工前讀完稿標準。**完稿標準已立**：`完稿標準_光學標本.md`（gitignore 僅本機）＝後續光學標本案例（李迪蛋面/M9b 瑪瑙/P1 星光）的施工與驗收規範，開工先讀。
+
+陣容定位：達碧茲（生長結構）/星光（asterism）/李迪（色帶）/瑪瑙（繞射）/亞歷（chatoyancy+變色）＝五現象零重複。開發順序：達碧茲→星石→亞歷→李迪→瑪瑙（次序前三完成，剩李迪/瑪瑙切片組）。後續：瑪瑙 M9b 厚牆 → 李迪厚牆 → P2 八面體（獨立 `octahedron.html`）。

@@ -297,10 +297,12 @@ const SLICES=[
    line:'瑪瑙紋帶細到接近光的波長，成了天然繞射光柵——只在背光下、傾到對的角度，彩虹才會現身。',
    lineEn:'Agate banding fine enough to approach the wavelength of light acts as a natural diffraction grating — the rainbow only appears backlit, at just the right tilt.',
    define:'SLICE_IRIS', glow:[0.62,0.68,0.85],
-   uniforms:{uBandDensity:110.0,uD0:1300.0,uDGrad:.9,uIrisGain:1.0,uThickness:.8},
+   /* [M9b 厚牆] 預設值依科研報告 §7【AI 代決可改】：厚度 1.2＝錨點 iris_9 的厚片端（Bragg 選擇性高）；
+      uDGrad 0.35＝兩條出彩環的間距差要小（錨點同一傾角兩環同時出彩），環內色序靠每層自己的週期變化 */
+   uniforms:{uBandDensity:110.0,uD0:1100.0,uDGrad:.35,uIrisGain:1.0,uThickness:1.2},
    sliders:[
      {k:'uBandDensity',zh:'紋帶密度',en:'Band density',min:60,max:170,step:1},
-     {k:'uD0',zh:'繞射間距',en:'Grating pitch',min:900,max:2400,step:10},
+     {k:'uD0',zh:'繞射間距',en:'Grating pitch',min:700,max:2400,step:10},
      {k:'uIrisGain',zh:'彩虹強度',en:'Iris gain',min:0,max:2,step:.05},
      {k:'uThickness',zh:'切片厚度',en:'Thickness',min:.3,max:1.6,step:.05}]},
 ];
@@ -350,8 +352,39 @@ float hexD(vec2 p){vec2 e2=vec2(0.5,0.8660),e3=vec2(-0.5,0.8660);
 float shapeSD(vec2 p){return mix(hexD(p),length(p),0.3)+0.03*fbm(p*3.1+vec2(4.4,1.9))-0.90;}
 #endif
 #ifdef SLICE_IRIS
-float shapeSD(vec2 p){vec2 q=p*vec2(1.0,1.22);
-  return length(q)*(1.0+0.10*fbm(q*1.8+vec2(3.1,7.2)))-0.95;}
+/* [M9b 厚牆] 紋帶幾何＝圓角正 N 邊形距離場（科研報告 §1/§7）：真石紋帶是多邊形板段，
+   板段內繞射法向是常數→整段同色同亮；舊版 圓＋fbm 逐像素擾動法向＝油膜斑駁的根。
+   NG／圓角／旋轉／外形寬高比【AI 代決可改】。IRIS_A＝中心到外形的距離（q 空間）*/
+#define NG 7.0
+#define IRIS_ROT 0.0    /* 0＝頂邊平、底為頂點（錨點 9 構圖）；板段對稱於 y 軸→對邊成對同色可驗 */
+#define IRIS_R 0.866
+#define IRIS_RR 0.10
+#define IRIS_A 0.88
+#define IRIS_ANISO vec2(1.0,1.10)
+#define IRIS_PAR 0.06   /* 厚度→視差/側壁比例（q 單位每 1.0 uThickness）*/
+vec2 irisWarp(vec2 q){ /* 低頻不對稱（各邊長短不一、側邊微彎）：只准低頻，高頻回到油膜感 */
+  float a=atan(q.y,q.x);
+  return q*(1.0+0.03*sin(2.0*a+1.3)+0.02*sin(3.0*a-0.6));}
+/* 回傳 <0 內部；nrm＝向外法向（＝繞射帶法向，板段內恆定、轉角圓弧平滑轉向）；sec＝板段索引 */
+float ngonSD(vec2 q,out vec2 nrm,out float sec){
+  float an=PI/NG;
+  vec2 acs=vec2(cos(an),sin(an));
+  float ang=atan(q.x,q.y)+IRIS_ROT;
+  sec=floor((ang+an)/(2.0*an));
+  float bn=ang-sec*2.0*an;
+  float sgn=bn<0.0?-1.0:1.0;
+  float L=length(q);
+  vec2 pr=L*vec2(cos(bn),abs(sin(bn)));
+  vec2 v=pr-IRIS_R*acs;
+  v.y+=clamp(-v.y,0.0,IRIS_R*acs.y);
+  float lv=max(length(v),1e-5);
+  float sx=v.x<0.0?-1.0:1.0;
+  vec2 nc=v/lv*sx; nc.y*=sgn;
+  float tc=sec*2.0*an-IRIS_ROT;
+  nrm=nc.x*vec2(sin(tc),cos(tc))+nc.y*vec2(cos(tc),-sin(tc));
+  return lv*sx-IRIS_RR;}
+float shapeSD(vec2 p){vec2 q=irisWarp(p*IRIS_ANISO);vec2 n;float s;
+  return ngonSD(q,n,s)+0.03*fbm(q*2.6+vec2(3.1,7.2));}
 #endif
 #ifdef SLICE_STAR
 /* 近圓微橢的蛋面輪廓（錨點 star_1「偏圓」）*/
@@ -465,32 +498,71 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
 #endif
 
 #ifdef SLICE_IRIS
-  /* 噪聲扭曲細帶 + 光柵繞射近似 */
-  vec2 q=p*vec2(1.0,1.22);
-  float rb=length(q);
-  float n3=fbm(q*3.0);
-  float n5=fbm(q*5.0);
-  float sB=rb+0.10*n3+0.02*fbm(q*11.0);
-  /* 帶振幅由內向外長出：中心=玉髓核（少帶、霧狀），外圈=細密紋帶（錨點 iris_5）*/
-  float bandAmp=smoothstep(0.12,0.35,rb);
+  /* [M9b 厚牆] 多邊形板段紋帶 ＋ 體積光柵繞射（科研報告 §7 映射表全項）
+     fbm 次數：shapeSD 1 ＋ 本段 2（漣漪、核霧）＝3（舊版 6）*/
+  vec2 q=irisWarp(p*IRIS_ANISO);
+  vec2 nrmP; float secI;
+  float sdP=ngonSD(q,nrmP,secI);
+  float zr=clamp(1.0+sdP/IRIS_A,0.0,1.0);      /* 紋帶座標：中心 0 → 外形 1 */
+  /* 內層越圓（真石核心近圓、外層貼多邊形）：座標與法向一起混，帶內色相仍平滑 */
+  float rc=length(q)/IRIS_A;
+  float inw=smoothstep(0.55,0.15,zr)*0.7;
+  float zb=mix(zr,rc,inw);
+  vec2 gdir=normalize(mix(nrmP,q/max(length(q),1e-4),inw)+vec2(1e-5));
+  float sB=zb+0.012*fbm(q*4.0);                 /* 漣漪只動座標不動法向 */
+  /* 厚度→Bragg 選擇性（§2）：tk 0＝薄片端 1＝厚片端 */
+  float tk=smoothstep(0.3,1.6,uThickness);
+  /* 沿視線兩點採樣（§5 牆體視差）：出射點 q、入射點 q2＝往視線反向退 T·tanθ_in（Snell n=1.54）*/
+  float sOut=length(vL.xy);
+  float sIn=sOut/1.54;
+  float tIn=sIn/sqrt(max(1.0-sIn*sIn,0.05));
+  vec2 p2=p-(vL.xy/max(sOut,1e-4))*tIn*IRIS_PAR*uThickness;
+  vec2 q2=irisWarp(p2*IRIS_ANISO);
+  vec2 nrm2; float sec2;
+  float zb2=clamp(1.0+ngonSD(q2,nrm2,sec2)/IRIS_A,0.0,1.0);
+  zb2=mix(zb2,length(q2)/IRIS_A,inw);
+  /* 粗帶牆體傾斜（§1/§5）：每板段一個常數傾角→邊界軟化寬度＝T·tanφ，正視就有差、傾斜再加視差 */
+  float ew=0.010+0.5*IRIS_PAR*uThickness*(0.3+1.2*hash(vec2(secI,1.7)));
+  /* 粗帶分區（錨點 iris_9 由內向外）：核 → 中環(出彩) → 灰藍過渡 → 外環(出彩) → 灰白邊帶 → 琥珀 crust */
+  float r1=smoothstep(0.30-ew,0.30+ew,zb)*(1.0-smoothstep(0.45-ew,0.45+ew,zb));
+  float r2=smoothstep(0.60-ew,0.60+ew,zb)*(1.0-smoothstep(0.85-ew,0.85+ew,zb));
+  float tr=smoothstep(0.46-ew,0.46+ew,zb)*(1.0-smoothstep(0.59-ew,0.59+ew,zb));
+  float eb=smoothstep(0.87-ew,0.87+ew,zb);
+  float r1b=smoothstep(0.30-ew,0.30+ew,zb2)*(1.0-smoothstep(0.45-ew,0.45+ew,zb2));
+  float r2b=smoothstep(0.60-ew,0.60+ew,zb2)*(1.0-smoothstep(0.85-ew,0.85+ew,zb2));
+  float trb=smoothstep(0.46-ew,0.46+ew,zb2)*(1.0-smoothstep(0.59-ew,0.59+ew,zb2));
+  float ebb=smoothstep(0.87-ew,0.87+ew,zb2);
+  float ring=0.5*(r1+r2+r1b+r2b);
+  float grey=0.5*(tr+trb);
+  float edge=0.5*(eb+ebb);
+  /* 細帶：核少帶霧狀、外圈細密（錨點 iris_5）；細帶只出在有帶的區 */
+  float bandAmp=smoothstep(0.15,0.32,zb);
   float band=(0.5+0.5*sin(TAU*sB*uBandDensity))*bandAmp;
-  float dens=1.05+0.45*n5+0.50*band
-    +(1.0-bandAmp)*0.55*fbm(q*8.0+vec2(1.7,6.3)); /* 核心霧斑 */
-  vec3 sigIris=vec3(0.34,0.30,0.26);            /* 乳白偏冷的玉髓透光 */
+  float pit=1.0-smoothstep(0.015,0.035,length(q));   /* 中心小黑點（錨點 9 中心空腔）*/
+  float dens=0.95+0.35*band+0.30*grey+0.25*edge
+    +(1.0-bandAmp)*0.5*fbm(q*7.0+vec2(1.7,6.3))     /* 核心霧斑 */
+    +pit*4.0;
+  vec3 sigIris=mix(vec3(0.34,0.30,0.26),vec3(0.48,0.40,0.30),grey*0.8); /* 乳白偏冷；過渡帶更灰藍 */
   /* 琥珀色外殼（錨點：金黃 crust 包邊）*/
   float crust=smoothstep(-0.14,-0.01,sd);
   sigIris=mix(sigIris,vec3(0.42,1.05,2.30),crust*0.8);
   T=exp(-sigIris*dens*pathLen);
-  /* 帶法向（sB 梯度近似；重用 n3/n5 省 fbm）*/
-  vec2 gdir=normalize(q+0.35*vec2(n3-0.5,fbm(q*3.0+vec2(9.2,7.7))-0.5)+vec2(1e-4));
+  /* 透射體積光柵：λ＝d_eff·|sv|（厚薄到一階同式，§2）。d_eff＝全域漸變＋每層自己的週期
+     （沿帶恆定、只隨帶座標變＝板段內色序沿半徑排、沿帶均勻）*/
   float sv=dot(gdir,vL.xy);
-  float dEff=uD0*(1.0+uDGrad*(rb-0.5)+0.15*(n5-0.5));
+  float pitchVar=0.10*sin(zb*41.0+1.7)+0.06*sin(zb*97.0+0.4);
+  float dEff=uD0*(1.0+uDGrad*(zb-0.5)+pitchVar);
   float lam=dEff*abs(sv);
-  vec3 spec=spectral(lam)+0.30*spectral(lam*0.5);
-  /* 防油膜感收斂：微去飽和 + 只在紋帶區 + 半徑窗 */
-  spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),0.18);
-  float gate=smoothstep(0.12,0.30,rb)*(1.0-smoothstep(0.86,1.0,rb));
-  irisAdd=spec*band*gate*uIrisGain*uBacklight*1.5;
+  /* 厚度三處接線（§7）：①二級隨厚度消失 ②去飽和隨厚度縮小 ③增益隨厚度上升 */
+  vec3 spec=spectral(lam)+0.30*(1.0-0.8*tk)*spectral(lam*0.5);
+  spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),mix(0.35,0.05,tk));
+  /* 出彩窗＝雙環（含視差平均）；核與 crust 強制 0 */
+  float gate=ring*(1.0-crust);
+  float irisW=(0.55+0.45*band)*bandAmp*gate*uIrisGain;
+  irisAdd=spec*irisW*uBacklight*4.2*mix(0.5,1.3,tk);
+  /* 零級耗竭：能量被彎進一級＝直透白光在出彩處變暗（Bragg 效率高→耗竭多）。
+     沒有這項彩虹只是疊在乳白上的淡染（probe 實測色差僅 +40），錨點 9 的彩虹是「取代」本體亮度 */
+  T*=1.0-0.75*min(irisW,1.0)*mix(0.3,1.0,tk);
 #endif
 
 #ifdef SLICE_STAR
@@ -859,6 +931,23 @@ void main(){
   float cosT=max(cos(uTilt),0.35);
   float inside;
   vec3 col=sliceLinear(p,vL,uThickness/cosT,inside);
+#ifdef SLICE_IRIS
+  if(inside<0.5){
+    /* [M9b 側壁]（科研報告 §3.4/§7）：傾斜時近側輪廓外露出厚度牆。底面輪廓在螢幕上往視線
+       方向平移 T·(vL.xy/vL.z)，「頂輪廓外、底輪廓內」＝牆。錨點 iris_10/11：鋸切霧面糖粒狀
+       白色透光、背光打亮成發光邊、琥珀只在頂緣皮帶；不畫紋帶條紋（粗糙面散射蓋掉）*/
+    vec2 dpar=vL.xy/max(vL.z,0.3)*(IRIS_PAR*uThickness);
+    float dl=length(dpar); if(dl>0.08)dpar*=0.08/dl;   /* quad 邊界餘裕 */
+    float sdT=shapeSD(p);
+    float sdB=shapeSD(p-dpar);
+    if(sdB>0.0)discard;
+    float u=clamp(sdT/max(sdT-sdB,1e-4),0.0,1.0);      /* 0＝頂緣 1＝底緣 */
+    float grain=0.8+0.4*vnoise(p*90.0);
+    vec3 wc=mix(vec3(1.0,0.97,0.90),vec3(1.0,0.72,0.30),(1.0-smoothstep(0.0,0.35,u))*0.5);
+    col=wc*uBacklight*(1.1+1.2*u)*grain+vec3(0.02); /* 要比周圍光桌亮才讀得出「發光邊」（probe：光桌在切片周圍約 140–210）*/
+    inside=1.0;
+  }
+#endif
   if(inside<0.5)discard;
   /* 無背光也看得到的微弱表面 sheen（平面版限定，蛋面有自己的 Fresnel）*/
   float fres=pow(1.0-abs(vL.z),3.0);
@@ -1259,7 +1348,7 @@ function updateGlowColor(){
     /* 與 shader 一致：有效視角 ≈ tilt − REST_ANGLE（正傾先抵銷相機俯角）*/
   const sv=Math.abs(Math.sin(state.tilt-REST_ANGLE));
     const d0=sliceMats.iris.uniforms.uD0.value;
-    const sp=spectralJS(d0*sv*0.72);
+    const sp=spectralJS(d0*sv); /* M9b：頂板段法向＝+y，λ＝d0·|sv| 與 shader 同式 */
     const amt=Math.min(1,(sp[0]+sp[1]+sp[2]));
     c=[c[0]*(1-amt)+sp[0]*amt,c[1]*(1-amt)+sp[1]*amt,c[2]*(1-amt)+sp[2]*amt];
   }

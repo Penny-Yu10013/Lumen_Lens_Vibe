@@ -392,9 +392,9 @@ float irisBand(vec2 q,out vec2 gdir,out float crackSoft,out float kOut,out float
   float cr=cos(rho),sr=sin(rho);
   vec2 np=vec2(nk.x*cr-nk.y*sr,nk.x*sr+nk.y*cr);
   float zp=clamp(1.0+(dot(q,np)-Ak)/Ak,0.0,1.05);
-  /* 外圈往圓形靠（外形是圓切角）：座標與法向一起混 */
+  /* 外圈往圓形靠（外形是圓切角）：法向只在外圈混；座標全程混 0.55 起跳＝每圈邊有弧度、轉角圓（v4 批改 3）*/
   float wo=0.5*smoothstep(0.62,1.0,zp);
-  float zb=mix(zp,L/IRIS_RC,wo);
+  float zb=mix(zp,L/IRIS_RC,0.55+0.15*smoothstep(0.62,1.0,zp));
   gdir=normalize(mix(np,q/max(L,1e-4),wo)+vec2(1e-5));
   /* 裂紋軟陰影：寬羽化（弧長 0.05），主裂紋＋子裂紋 */
   float c1=1.0-smoothstep(0.0,0.05,(an-abs(bnW))*L);
@@ -409,6 +409,13 @@ float shapeSD(vec2 p){vec2 q=p*IRIS_ANISO;
   float kk=0.06; float h=clamp(0.5+0.5*(pd-cd)/kk,0.0,1.0);
   float sd=mix(cd,pd,h)+kk*h*(1.0-h);                 /* smax：圓切角 */
   return sd+0.06*fbm(q*2.0+vec2(3.1,7.2))-0.02;}
+/* [v4 批改 4] 粗帶骨架（錨點 9：核→橄欖環→中環→過渡帶→外環→灰綠外環→皮，各層寬度不一）。
+   回傳 x＝透光乘數（中性）、y＝橄欖量、z＝灰藍量。半徑常數與出彩環共用（科研報告 §8）*/
+vec3 irisMacro(float z){
+  float olv=smoothstep(0.18,0.25,z)*(1.0-smoothstep(0.28,0.34,z));
+  float trn=smoothstep(0.46,0.52,z)*(1.0-smoothstep(0.56,0.62,z));
+  float slt=smoothstep(0.82,0.90,z);
+  return vec3((1.0-0.40*olv)*(1.0-0.28*trn)*(1.0-0.45*slt),olv+0.6*trn,slt);}
 /* 彩虹專用窄峰光譜（飽和要夠，共用 spectral() 的寬峰混色）*/
 vec3 spectralN(float l){
   float R=exp(-(l-608.0)*(l-608.0)/3200.0)+0.20*exp(-(l-430.0)*(l-430.0)/500.0); /* 紫端 R 峰收窄：462nm 藍不得帶紅（tonemap 會把弱通道抬上來）*/
@@ -528,12 +535,16 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
 #endif
 
 #ifdef SLICE_IRIS
-  /* [M9b v3] 透明體＋染色＋彩虹層（用戶 v2 批改 1–7：本體真透光、裂紋只留錯位、粗帶軟漸層、
-     彩虹跨帶柔化去黑縫、出彩一塊一塊、核暖黃白最亮）。fbm：shapeSD 1＋漣漪 1＋核霧 1＝3 */
-  profile=0.92+0.08*exp(-dot(p,p)*0.5);          /* 平面版共用暗角對 iris 太重（批改 7：本體不得低於光桌 40%）*/
+  /* [M9b v4] 透明體＋染色＋彩虹層。v4＝第三輪批改：彩虹從「細條紋貼紙」改成「每板段每環一片暈」
+     （色相沿半徑慢換、條紋只在暈內隱約）、角向寬淡出、紋帶有機翹曲、粗帶骨架、彩色處能量守恆不沉。
+     fbm：shapeSD 1＋漣漪 1＋核霧 1＝3；另 vnoise 2（翹曲）*/
+  profile=0.92+0.08*exp(-dot(p,p)*0.5);          /* 平面版共用暗角對 iris 太重（v2 批改 7）*/
   vec2 q=p*IRIS_ANISO;
   vec2 gdir; float crackS,kS,bnS,sPosS,wbS;
   float zb=irisBand(q,gdir,crackS,kS,bnS,sPosS,wbS);
+  /* 有機年輪（v4 批改 3）：低頻翹曲，外圈大內圈小＝紋帶局部凸起、厚度沿圈不均；只動座標不動法向 */
+  float wrp=((vnoise(q*2.3+vec2(5.1,2.7))-0.5)*0.10+(vnoise(q*5.7+vec2(1.3,8.2))-0.5)*0.035)*(0.25+zb);
+  zb+=wrp;
   float sB=zb+0.012*fbm(q*4.0);                 /* 漣漪只動座標不動法向 */
   float tk=smoothstep(0.3,1.3,uThickness);      /* 厚度→Bragg 選擇性 */
   /* 沿視線兩點採樣（§5 牆體視差）：出射點 q、入射點 q2（Snell n=1.54）*/
@@ -542,66 +553,62 @@ vec3 sliceLinear(vec2 p,vec3 vL,float pathLen,out float inside){
   float tIn=sIn/sqrt(max(1.0-sIn*sIn,0.05));
   vec2 q2=(p-(vL.xy/max(sOut,1e-4))*tIn*IRIS_PAR*uThickness)*IRIS_ANISO;
   vec2 gd2; float c2_,k2_,b2_,s2_,w2_;
-  float zb2=irisBand(q2,gd2,c2_,k2_,b2_,s2_,w2_);
-  /* 粗細帶節奏（批改 3）：不等週期，粗帶＝軟餘弦峰（透光 −22%、更橄欖），峰間＝細帶包（出彩）*/
+  float zb2=irisBand(q2,gd2,c2_,k2_,b2_,s2_,w2_)+wrp;
+  float zm=0.5*(zb+zb2);                         /* 粗尺度（骨架/出彩環）用兩點平均＝傾斜時邊緣軟化位移 */
+  /* 粗帶骨架（v4 批改 4）＋細節奏退居質地（v3 的 −22% 等寬節奏＝塑膠板感，降到 −7%）*/
+  vec3 mc=0.5*(irisMacro(zb)+irisMacro(zb2));
   float ph1=zb*9.0+0.6*sin(zb*23.0+1.0)+0.3*sin(zb*41.0);
-  float ph2=zb2*9.0+0.6*sin(zb2*23.0+1.0)+0.3*sin(zb2*41.0);
-  float f1=fract(ph1);
-  float cs1=pow(0.5+0.5*cos(TAU*(f1-0.85)),1.4);
-  float cs2=pow(0.5+0.5*cos(TAU*(fract(ph2)-0.85)),1.4);
-  float cs=0.5*(cs1+cs2);
-  /* 環包絡（錨點 9：中環/外環出彩最強）與過渡帶，全部寬羽化 */
-  float ew=0.04;
-  float r1=smoothstep(0.28-ew,0.28+ew,zb)*(1.0-smoothstep(0.46-ew,0.46+ew,zb));
-  float r2=smoothstep(0.60-ew,0.60+ew,zb)*(1.0-smoothstep(0.86-ew,0.86+ew,zb));
-  float r1b=smoothstep(0.28-ew,0.28+ew,zb2)*(1.0-smoothstep(0.46-ew,0.46+ew,zb2));
-  float r2b=smoothstep(0.60-ew,0.60+ew,zb2)*(1.0-smoothstep(0.86-ew,0.86+ew,zb2));
-  float ring=0.5*(r1+r2+r1b+r2b);
-  float tr=0.5*(smoothstep(0.44,0.50,zb)*(1.0-smoothstep(0.56,0.62,zb))
-               +smoothstep(0.44,0.50,zb2)*(1.0-smoothstep(0.56,0.62,zb2)));
-  float eb=smoothstep(0.84,0.92,zb);
-  float coreK=smoothstep(0.0,0.30,zb);          /* 核＝最透最暖（批改 1/6）*/
-  /* 細帶：極淡質地（批改 4：不要硬條紋），一路收束到中心 */
-  float band=0.5+0.5*sin(TAU*sB*uBandDensity);
+  float cs=pow(0.5+0.5*cos(TAU*(fract(ph1)-0.85)),1.4);
+  float coreK=smoothstep(0.0,0.30,zb);          /* 核＝最透最暖 */
+  float band=0.5+0.5*sin(TAU*sB*uBandDensity);  /* 細帶：極淡質地，一路收束到中心 */
   vec2 qe=q*vec2(1.0,1.6);
   float pit=1.0-smoothstep(0.018,0.038,length(qe)+0.006*sin(atan(qe.y,qe.x)*3.0)); /* 中心深色包裹體 */
-  /* 體色（批改 1/5）：真透光，黃綠靠選擇性吸收（吸藍＞吸紅≫吸綠）；核暖黃白；粗帶/過渡帶更橄欖 */
+  /* 體色：真透光，黃綠靠選擇性吸收（吸藍＞吸紅≫吸綠）；橄欖環/過渡帶更橄欖、外環灰藍（吸紅、少吸藍）*/
   vec3 sigCore=vec3(0.06,0.14,2.0);            /* 核暖黃：藍要壓到 T≈0.25，tonemap 才留得住暖色（probe 校準）*/
   vec3 sigBody=vec3(0.22,0.08,0.50);
-  vec3 sigIris=mix(sigCore,sigBody,coreK)+vec3(0.10,0.0,0.25)*(cs+0.6*tr);
+  vec3 sigIris=mix(sigCore,sigBody,coreK)+vec3(0.12,0.0,0.35)*mc.y+vec3(0.04,0.0,0.10)*cs
+              +vec3(0.30,0.06,-0.22)*mc.z;
   float dens=mix(0.5,1.0,coreK)+(1.0-coreK)*0.10*fbm(q*7.0+vec2(1.7,6.3));
   float crust=smoothstep(-0.06,-0.005,sd);       /* 皮：薄（錨點 ~3% 半徑）、深褐紅 */
   float skin=smoothstep(-0.025,-0.004,sd);
   sigIris=mix(sigIris,vec3(0.90,2.20,3.20),crust*0.85);
   dens+=skin*1.4;
   T=exp(-sigIris*dens*pathLen);
-  /* 透光量調變（中性、軟）：粗帶 −22%、過渡帶 −12%、邊帶 −15%、裂紋軟影 −6%、細帶質地 −5% */
-  T*=(1.0-0.22*cs)*(1.0-0.12*tr)*(1.0-0.15*eb)*(1.0-0.06*crackS)*(1.0-0.05*band*coreK);
-  T*=1.0-0.95*pit;                              /* 包裹體＝近黑中性（唯一允許低於光桌 40% 的點，連同皮）*/
-  /* 透射體積光柵：λ＝d_eff·|sv|。d_eff＝全域漸變＋每層自己的週期＋每塊微差（批改 5：一塊一塊不同色）*/
-  float pi_=floor(ph1);
-  float pBlk=hash(vec2(kS*3.0+1.0,pi_));
-  float sv=dot(gdir,vL.xy);
-  float pitchVar=0.10*sin(zb*41.0+1.7)+0.06*sin(zb*97.0+0.4)+0.10*(pBlk-0.5);
-  float dEff=uD0*(1.0+uDGrad*(zb-0.5)+pitchVar);
-  float lam=dEff*abs(sv);
-  vec3 spec=spectralN(lam)+0.30*(1.0-0.8*tk)*spectralN(lam*0.5);
-  spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),mix(0.30,0.0,tk));
-  /* 出彩分塊（批改 5）：每（板段, 細帶包）一個活性，於粗帶內交叉淡入淡出；扇區邊界與子裂紋角向柔淡出 */
+  T*=mc.x*(1.0-0.07*cs)*(1.0-0.06*crackS)*(1.0-0.05*band*coreK);
+  T*=1.0-0.95*pit;                              /* 包裹體＝近黑中性 */
+  /* ---- 彩虹層（v4 批改 1/2/5/6）----
+     一片暈＝（板段 k, 環 j, 子片）；暈內 d 只隨 uDGrad 沿半徑緩變（跨整條環約換 1 個色名），
+     條紋只做 ±0.4% 色偏＋20% 明暗的隱約質地；邊緣：徑向佔環寬 40% 淡出、角向從扇區中段一路淡到裂紋 0 */
   float an_=PI/NG;
-  float a0=smoothstep(0.30,0.70,hash(vec2(kS,pi_)));
-  float a1=smoothstep(0.30,0.70,hash(vec2(kS,pi_+1.0)));
-  float act=mix(a0,a1,smoothstep(0.70,1.0,f1));
-  float aw=1.0-0.65*smoothstep(0.45*an_,an_,abs(bnS));
-  aw*=1.0-0.5*wbS*(1.0-smoothstep(0.0,0.25*an_,abs(bnS-sPosS)));
-  /* 徑向包絡＝粗帶餘弦的反相（跨 2–3 條細帶淡出，批改 4），× 環包絡 × 分塊活性 × 角向；核與皮 0 */
-  float env=(1.0-cs)*(0.35+0.65*ring)*(0.25+0.75*act)*aw;
-  float gate=env*(1.0-crust)*coreK;
-  float irisW=(0.8+0.2*band)*gate*uIrisGain;
-  irisAdd=spec*irisW*uBacklight*5.0*mix(0.5,1.3,tk);
-  /* 零級耗竭只綁「看得見的」彩虹（批改 4：λ 在可見光外時不得留黑縫）*/
+  float rj=step(0.555,zm);
+  float ra=mix(0.32,0.60,rj), rb=mix(0.48,0.85,rj);
+  float u=(zm-ra)/(rb-ra);
+  float renv=smoothstep(0.0,0.28,u)*(1.0-smoothstep(0.72,1.0,u));
+  float hP=hash(vec2(kS*5.0,rj*13.0+2.0));      /* 一板段一環＝一片（子裂紋再切會把暈切碎，錨點暈跨整條環）*/
+  float act=0.05+0.95*smoothstep(0.05,0.20,hP); /* 約九成暈含細帶；其餘近乎不出彩（批改 5：高增益也不成畫框）*/
+  float aw=1.0-smoothstep(0.55*an_,1.0*an_,abs(bnS));
+  aw*=1.0-0.45*wbS*(1.0-smoothstep(0.0,0.30*an_,abs(bnS-sPosS)));
+  float stri=0.5+0.5*sin(TAU*(zb*26.0+0.7*sin(zb*11.0+kS)));
+  /* 繞射法向：板段主法向（不吃子裂紋 ±rho，子片間色相連續）＋殼層穿厚度的傾斜（科研 §1：每板段不同）→
+     sv 多一個常數偏移 ±0.06–0.20＝各板段在不同傾角輪流點亮，側向板段也輪得到（科研 §3.2：每一格畫面永遠有某幾塊在亮）。
+     每片暈間距 ×0.64–1.57（對數均勻）＝任何常用傾角都有一部分塊落在可見光 */
+  float Lq=length(q);
+  vec2 gI=normalize(mix(irisNrm(kS),q/max(Lq,1e-4),0.5*smoothstep(0.62,1.0,zb))+vec2(1e-5));
+  float hs=hash(vec2(kS,rj+7.7));
+  float sv=dot(gI,vL.xy)+(0.06+0.14*fract(hs*7.13))*(hs>0.5?1.0:-1.0);
+  float dEff=uD0*exp(0.9*(hash(vec2(hP,4.1))-0.5))*(1.0+uDGrad*(zm-0.5)+0.008*(stri-0.5));
+  float lam=dEff*abs(sv);
+  vec3 spec=spectralN(lam)+mix(0.55,0.35,tk)*spectralN(lam*0.5); /* 二級：λ 落紅外的塊以 ~1/3 強度出彩＝暗塊夾亮塊（科研 §2 相干厚度遠小於物理厚度＝二級殘留）*/
+  spec=mix(spec,vec3(dot(spec,vec3(0.299,0.587,0.114))),mix(0.30,0.0,tk));
+  spec=pow(spec,vec3(1.4));                     /* 收窄峰尾：tonemap＋gamma 會把 5% 的次通道抬成粉彩 */
+  float gate=renv*act*aw*(1.0-crust)*coreK*(0.80+0.20*stri)*(0.92+0.08*band);
+  /* 能量守恆（批改 6：彩色處不得比本體暗）：直透光被彎走多少、彩色就補多少，亮度跟本體走 */
   float vis=clamp(max(spec.r,max(spec.g,spec.b)),0.0,1.0);
-  T*=1.0-0.85*min(irisW,1.0)*vis*mix(0.4,1.0,tk); /* 厚牆 Bragg 效率高＝彩色處直透光幾乎被彎走，才有「刺激」的純色 */
+  float lumS=dot(spec,vec3(0.299,0.587,0.114));
+  float Tl=dot(T,vec3(0.299,0.587,0.114));
+  float e=gate*mix(0.5,1.0,tk);                 /* 繞射效率：厚→高 */
+  T*=1.0-0.95*min(e*uIrisGain/1.3,1.0)*vis;
+  irisAdd=spec/max(lumS,0.22)*e*Tl*uIrisGain*2.2*uBacklight;
   /* 核暖光：tonemap 前加暖色（批改 6），核＝全片最亮 */
   irisAdd+=pow(1.0-coreK,1.5)*0.6*(1.0-pit)*vec3(1.0,0.85,0.45)*uBacklight; /* 中心最亮、往外淡（錨點 f01 核＝熱區）*/
 #endif
